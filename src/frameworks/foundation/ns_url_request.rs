@@ -10,7 +10,7 @@ use crate::frameworks::foundation::ns_string::to_rust_string;
 use crate::objc::{
     autorelease, id, nil, objc_classes, release, ClassExports, HostObject, NSZonePtr,
 };
-use crate::{msg, msg_class, todo_objc_setter};
+use crate::{msg, msg_class};
 
 type NSURLRequestCachePolicy = NSUInteger;
 const NSURLRequestUseProtocolCachePolicy: NSURLRequestCachePolicy = 0;
@@ -137,8 +137,20 @@ pub const CLASSES: ClassExports = objc_classes! {
 - (id)URL {
     env.objc.borrow::<NSURLRequestHostObject>(this).url
 }
+- (id)HTTPMethod {
+    env.objc.borrow::<NSURLRequestHostObject>(this).http_method
+}
 - (id)HTTPBody {
     env.objc.borrow::<NSURLRequestHostObject>(this).http_body
+}
+- (id)allHTTPHeaderFields {
+    env.objc.borrow::<NSURLRequestHostObject>(this).http_header_fields
+}
+- (NSURLRequestCachePolicy)cachePolicy {
+    env.objc.borrow::<NSURLRequestHostObject>(this).cache_policy
+}
+- (NSTimeInterval)timeoutInterval {
+    env.objc.borrow::<NSURLRequestHostObject>(this).timeout_interval
 }
 
 - (())dealloc {
@@ -160,10 +172,6 @@ pub const CLASSES: ClassExports = objc_classes! {
 @end
 
 @implementation NSMutableURLRequest: NSURLRequest
-
-- (())setCachePolicy:(NSURLRequestCachePolicy)cache_policy {
-    todo_objc_setter!(this, cache_policy);
-}
 
 - (())setHTTPMethod:(id)http_method { // NSString *
     let http_method_copy = msg![env; http_method copy];
@@ -206,6 +214,13 @@ pub const CLASSES: ClassExports = objc_classes! {
     let existing: id = msg![env; http_header_fields objectForKey:field];
     assert_eq!(existing, nil); // TODO: append values with comma
     () = msg![env; http_header_fields setObject:value forKey:field];
+}
+
+- (())setCachePolicy:(NSURLRequestCachePolicy)cache_policy {
+    env.objc.borrow_mut::<NSURLRequestHostObject>(this).cache_policy = cache_policy;
+}
+- (())setTimeoutInterval:(NSTimeInterval)timeout_interval {
+    env.objc.borrow_mut::<NSURLRequestHostObject>(this).timeout_interval = timeout_interval;
 }
 
 @end
