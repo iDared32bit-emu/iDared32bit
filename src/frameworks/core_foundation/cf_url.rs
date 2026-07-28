@@ -8,20 +8,24 @@
 //! This is toll-free bridged to `NSURL` in Apple's implementation. Here it is
 //! the same type.
 
+use std::collections::HashSet;
+use std::sync::LazyLock;
+
 use super::cf_allocator::{kCFAllocatorDefault, CFAllocatorRef};
 use super::CFIndex;
 use crate::dyld::{export_c_func, FunctionExports};
 use crate::frameworks::core_foundation::cf_string::{
-    kCFStringEncodingASCII, CFStringConvertEncodingToNSStringEncoding, CFStringEncoding,
-    CFStringRef,
+    kCFStringEncodingASCII, kCFStringEncodingUTF8, CFStringConvertEncodingToNSStringEncoding,
+    CFStringEncoding, CFStringRef,
 };
 use crate::frameworks::foundation::ns_string::{
-    get_static_str, to_rust_string, NSUTF8StringEncoding,
+    from_rust_string, get_static_str, to_rust_string, NSUTF8StringEncoding,
 };
 use crate::frameworks::foundation::NSUInteger;
 use crate::mem::{ConstPtr, MutPtr, Ptr};
-use crate::objc::{id, msg, msg_class, release};
+use crate::objc::{id, msg, msg_class, nil, release};
 use crate::Environment;
+use std::fmt::Write;
 
 pub type CFURLRef = super::CFTypeRef;
 
@@ -194,6 +198,65 @@ fn CFURLHasDirectoryPath(env: &mut Environment, url: CFURLRef) -> bool {
         || msg![env; last isEqual:(get_static_str(env, ".."))]
 }
 
+// The # sign and square brackets [] should be reserved, but from testing
+// they're not.
+const unescaped_url_chars: &str =
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~!$&'()*+,/:;=?@";
+static UNESCAPED_URL_CHARS: LazyLock<HashSet<char>> =
+    LazyLock::new(|| HashSet::from_iter(unescaped_url_chars.chars()));
+
+fn CFURLCreateStringByAddingPercentEscapes(
+    env: &mut Environment,
+    allocator: CFAllocatorRef,
+    original_string: CFStringRef,
+    to_leave_unescaped: CFStringRef,
+    to_be_escaped: CFStringRef,
+    encoding: CFStringEncoding,
+) -> CFStringRef {
+    fn percent_encode(string: &mut String, c: char) {
+        let mut buf = [0; 4];
+        c.encode_utf8(&mut buf);
+        for b in buf.iter().take(c.len_utf8()) {
+            let _ = write!(string, "%{:02x}", b);
+        }
+    }
+    // This has (kinda) weird semantics if a character is specified to be both
+    // escaped and unescaped. If a character is specified twice, it will do the
+    // opposite of what it originally does (url safe chars are escaped and vice
+    // versa)
+    assert_eq!(encoding, kCFStringEncodingUTF8);
+    assert_eq!(allocator, kCFAllocatorDefault);
+    let leave_unescaped: HashSet<char> = if to_leave_unescaped != nil {
+        HashSet::from_iter(to_rust_string(env, to_leave_unescaped).chars())
+    } else {
+        HashSet::new()
+    };
+    let escaped: HashSet<char> = if to_be_escaped != nil {
+        HashSet::from_iter(to_rust_string(env, to_be_escaped).chars())
+    } else {
+        HashSet::new()
+    };
+    let original = to_rust_string(env, original_string);
+    let mut final_string = String::with_capacity(original.len());
+    for c in original.chars() {
+        if UNESCAPED_URL_CHARS.contains(&c) {
+            if escaped.contains(&c) {
+                percent_encode(&mut final_string, c);
+            } else {
+                final_string.push(c);
+            }
+        } else {
+            if leave_unescaped.contains(&c) {
+                final_string.push(c);
+            } else {
+                percent_encode(&mut final_string, c);
+            }
+        }
+    }
+    log_dbg!("CFURLCreateStringByAddingPercentEscapes(original_string: {original}, to_leave_unescaped: {leave_unescaped:?}, to_be_escaped: {escaped:?}) -> {final_string}");
+    from_rust_string(env, final_string)
+}
+
 pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(CFURLGetFileSystemRepresentation(_, _, _, _)),
     export_c_func!(CFURLCreateFromFileSystemRepresentation(_, _, _, _)),
@@ -205,4 +268,5 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(CFURLCreateCopyAppendingPathComponent(_, _, _, _)),
     export_c_func!(CFURLCreateCopyDeletingLastPathComponent(_, _)),
     export_c_func!(CFURLHasDirectoryPath(_)),
+    export_c_func!(CFURLCreateStringByAddingPercentEscapes(_, _, _, _, _)),
 ];
