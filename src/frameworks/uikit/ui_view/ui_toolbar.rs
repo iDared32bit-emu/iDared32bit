@@ -88,7 +88,7 @@ const DONE_BUTTON: Gloss = [
 ];
 
 /// Height of a bordered bar button, as on iPhone OS 3.
-const BUTTON_HEIGHT: CGFloat = 30.0;
+pub(super) const BUTTON_HEIGHT: CGFloat = 30.0;
 /// Space between the toolbar's edges and its first and last items.
 const EDGE_INSET: CGFloat = 6.0;
 
@@ -211,9 +211,15 @@ fn set_layer_image(env: &mut Environment, view: id, canvas: Canvas) {
     release(env, image);
 }
 
-/// The toolbar's glossy background, with a thin line along its top, in
-/// pixels.
-fn background_canvas(width: u32, height: u32, scale: f32, bar_style: UIBarStyle) -> Canvas {
+/// A bar's glossy background, with a thin line along its top (toolbars) or
+/// bottom (navigation bars), in pixels.
+fn background_canvas(
+    width: u32,
+    height: u32,
+    scale: f32,
+    bar_style: UIBarStyle,
+    line_at_top: bool,
+) -> Canvas {
     let (gloss, line) = match bar_style {
         UIBarStyleBlack => (BLACK_BAR, [0.55, 0.55, 0.55, 0.5]),
         UIBarStyleBlackTranslucent => (BLACK_TRANSLUCENT_BAR, [0.55, 0.55, 0.55, 0.5]),
@@ -229,14 +235,21 @@ fn background_canvas(width: u32, height: u32, scale: f32, bar_style: UIBarStyle)
         size,
     };
     canvas.rounded_rect(full, 0.0, None, |t| gloss_at(&gloss, t));
-    let top = CGRect {
+    let line_rect = CGRect {
+        origin: CGPoint {
+            x: 0.0,
+            y: if line_at_top {
+                0.0
+            } else {
+                size.height - scale
+            },
+        },
         size: CGSize {
             height: scale,
             ..size
         },
-        ..full
     };
-    canvas.rounded_rect(top, 0.0, None, |_| line);
+    canvas.rounded_rect(line_rect, 0.0, None, |_| line);
     canvas
 }
 
@@ -305,16 +318,25 @@ fn size_to_draw(env: &mut Environment, view: id) -> Option<(u32, u32, f32)> {
     Some((width, height, scale))
 }
 
-fn draw_background(env: &mut Environment, this: id) {
+pub(super) fn draw_bar_background(
+    env: &mut Environment,
+    this: id,
+    bar_style: UIBarStyle,
+    line_at_top: bool,
+) {
     let Some((width, height, scale)) = size_to_draw(env, this) else {
         return;
     };
-    let bar_style = env.objc.borrow::<UIToolbarHostObject>(this).bar_style;
-    let canvas = background_canvas(width, height, scale, bar_style);
+    let canvas = background_canvas(width, height, scale, bar_style, line_at_top);
     set_layer_image(env, this, canvas);
 }
 
-fn draw_button(env: &mut Environment, view: id, bar_style: UIBarStyle, item_style: NSInteger) {
+pub(super) fn draw_button(
+    env: &mut Environment,
+    view: id,
+    bar_style: UIBarStyle,
+    item_style: NSInteger,
+) {
     let Some((width, height, scale)) = size_to_draw(env, view) else {
         return;
     };
@@ -474,7 +496,8 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (())layoutSubviews {
-    draw_background(env, this);
+    let bar_style = env.objc.borrow::<UIToolbarHostObject>(this).bar_style;
+    draw_bar_background(env, this, bar_style, true);
     let bounds: CGRect = msg![env; this bounds];
     let host = env.objc.borrow::<UIToolbarHostObject>(this);
     let items = host.items.to_vec();
