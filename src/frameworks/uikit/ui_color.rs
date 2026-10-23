@@ -106,6 +106,10 @@ pub const CLASSES: ClassExports = objc_classes! {
 + (id)purpleColor   { get_standard_color(env, _cmd, 0.5, 0.0, 1.5, 1.0) }
 + (id)redColor      { get_standard_color(env, _cmd, 1.0, 0.0, 0.0, 1.0) }
 + (id)yellowColor   { get_standard_color(env, _cmd, 1.0, 1.0, 0.0, 1.0) }
+// The dark grey behind "flipside" screens on iPhone OS 3.
++ (id)viewFlipsideBackgroundColor {
+    get_standard_color(env, _cmd, 0.122, 0.129, 0.141, 1.0)
+}
 
 // TODO: more initializers, set methods, more accessors
 
