@@ -276,6 +276,13 @@ pub const CLASSES: ClassExports = objc_classes! {
     let selector = to_rust_string(env, label);
     let action = env.objc.lookup_selector(&selector).unwrap();
 
+    // Bar button items aren't controls: they have one target and action.
+    let bar_button_item = env.objc.get_known_class("UIBarButtonItem", &mut env.mem);
+    if msg![env; source isKindOfClass:bar_button_item] {
+        () = msg![env; source setTarget:destination];
+        () = msg![env; source setAction:action];
+        return;
+    }
     () = msg![env; source addTarget:destination action:action forControlEvents:event_mask];
 }
 

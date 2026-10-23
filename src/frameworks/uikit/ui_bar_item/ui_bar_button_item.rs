@@ -12,8 +12,8 @@ use crate::frameworks::foundation::NSInteger;
 use crate::frameworks::uikit::ui_font::UITextAlignmentCenter;
 use crate::frameworks::uikit::ui_view::ui_control::UIControlEventTouchUpInside;
 use crate::objc::{
-    id, impl_HostObject_with_superclass, msg, msg_class, msg_super, nil, objc_classes, release,
-    retain, ClassExports, NSZonePtr, SEL,
+    id, impl_HostObject_with_superclass, msg, msg_class, msg_send, msg_super, nil, objc_classes,
+    release, retain, ClassExports, NSZonePtr, SEL,
 };
 
 pub type UIBarButtonItemStyle = NSInteger;
@@ -79,7 +79,9 @@ fn make_label(env: &mut crate::Environment, title: id) -> id {
     label
 }
 
-fn make_custom_view(env: &mut crate::Environment, label: id, target: id, action: SEL) -> id {
+/// The button's control sends the item's action through it, so a target or
+/// action set later (e.g. by a nib) is used, and the sender is the item.
+fn make_custom_view(env: &mut crate::Environment, label: id, item: id) -> id {
     let init_frame = CGRect {
         origin: CGPoint { x: 0.0, y: 0.0 },
         size: CGSize {
@@ -92,9 +94,10 @@ fn make_custom_view(env: &mut crate::Environment, label: id, target: id, action:
     if label != nil {
         () = msg![env; control addSubview:label];
     }
-    if target != nil {
-        () = msg![env; control addTarget:target action:action forControlEvents:UIControlEventTouchUpInside];
-    }
+    let action = env
+        .objc
+        .register_host_selector("_touchHLE_sendAction".to_string(), &mut env.mem);
+    () = msg![env; control addTarget:item action:action forControlEvents:UIControlEventTouchUpInside];
     control
 }
 
@@ -143,7 +146,7 @@ pub const CLASSES: ClassExports = objc_classes! {
     );
 
     let label = make_label(env, title);
-    let custom_view = make_custom_view(env, label, target, action);
+    let custom_view = make_custom_view(env, label, this);
 
     {
         let host = env.objc.borrow_mut::<UIBarButtonItemHostObject>(this);
@@ -196,7 +199,7 @@ pub const CLASSES: ClassExports = objc_classes! {
         ),
     };
 
-    let custom_view = make_custom_view(env, label, target, action);
+    let custom_view = make_custom_view(env, label, this);
 
     {
         let host = env.objc.borrow_mut::<UIBarButtonItemHostObject>(this);
@@ -262,7 +265,56 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (())setTarget:(id)target {
-    env.objc.borrow_mut::<UIBarButtonItemHostObject>(this).target = target;
+    // Retained, as by the initializers.
+    retain(env, target);
+    let old = std::mem::replace(
+        &mut env.objc.borrow_mut::<UIBarButtonItemHostObject>(this).target,
+        target,
+    );
+    release(env, old);
+}
+
+- (())_touchHLE_sendAction {
+    let host = env.objc.borrow::<UIBarButtonItemHostObject>(this);
+    let (target, action) = (host.target, host.action);
+    // No action: something else handles taps (e.g. a back button).
+    let Some(action) = action else {
+        return;
+    };
+    if target == nil {
+        log!("TODO: UIBarButtonItem {:?} action with no target", this);
+        return;
+    }
+    let sel_str = action.as_str(&env.mem);
+    match sel_str.bytes().filter(|&b| b == b':').count() {
+        0 => msg_send(env, (target, action)),
+        1 => msg_send(env, (target, action, this)),
+        _ => msg_send(env, (target, action, this, nil)),
+    }
+}
+
+// NSCoding implementation
+- (id)initWithCoder:(id)coder {
+    let key = get_static_str(env, "UIIsSystemItem");
+    let is_system_item: bool = msg![env; coder decodeBoolForKey:key];
+    let key = get_static_str(env, "UIStyle");
+    let style: NSInteger = msg![env; coder decodeIntegerForKey:key];
+    // Any selector: the action is cleared below.
+    let action = env
+        .objc
+        .register_host_selector("_touchHLE_sendAction".to_string(), &mut env.mem);
+    let this: id = if is_system_item {
+        let key = get_static_str(env, "UISystemItem");
+        let item: NSInteger = msg![env; coder decodeIntegerForKey:key];
+        msg![env; this initWithBarButtonSystemItem:item target:nil action:action]
+    } else {
+        let key = get_static_str(env, "UITitle");
+        let title: id = msg![env; coder decodeObjectForKey:key];
+        msg![env; this initWithTitle:title style:style target:nil action:action]
+    };
+    // The nib connects the target and action afterwards.
+    env.objc.borrow_mut::<UIBarButtonItemHostObject>(this).action = None;
+    this
 }
 
 - (CGFloat)width {
