@@ -7,6 +7,7 @@ iDared 32bit is based on [touchHLE](https://touchhle.org/). This file lists only
 Compatibility:
 
 - Fixed a crash in some games that work with dates.
+- Fixed some games freezing during animations.
 
 ## v1.5.0 (2026-10-23)
 

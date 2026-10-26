@@ -58,11 +58,14 @@ impl CAMediaTimingFunctionHostObject {
         // My math is kinda rusty so i couldnt solve the equation
         // but a quick google search yielded me people "solving" it
         // by brute forcing it through binary search so... ah well
+        // The curve only covers 0 to 1, and the search is bounded, as in f32
+        // the input may never be matched exactly (or may be NaN).
+        let input = input.clamp(0.0, 1.0);
         let mut lower = 0.0;
         let mut upper = 1.0;
-        let mut t;
+        let mut t = 0.5;
         let mut x;
-        loop {
+        for _ in 0..64 {
             t = (upper + lower) / 2.0;
             x = self.coord_in_curve(t, 0);
             if (x - input).abs() < f32::EPSILON {
@@ -218,6 +221,17 @@ mod tests {
                 expected
             );
         }
+    }
+
+    #[test]
+    fn test_solve_for_input_out_of_range() {
+        let function = CAMediaTimingFunctionHostObject {
+            control_points: [[0.42, 0.0], [0.58, 1.0]],
+        };
+        // These used to loop forever.
+        assert!((function.solve_for_input(1.0000001) - 1.0).abs() < 1e-5);
+        assert!(function.solve_for_input(-0.5).abs() < 1e-5);
+        function.solve_for_input(f32::NAN);
     }
 
     #[test]
