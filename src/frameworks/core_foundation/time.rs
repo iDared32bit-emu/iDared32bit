@@ -39,6 +39,28 @@ pub struct CFGregorianDate {
 }
 unsafe impl SafeRead for CFGregorianDate {}
 impl_GuestRet_for_large_struct!(CFGregorianDate);
+impl GuestArg for CFGregorianDate {
+    // The year, then month, day, hours and minutes in one word, then seconds.
+    const REG_COUNT: usize = 4;
+
+    fn from_regs(regs: &[u32]) -> Self {
+        let [month, day, hours, minutes] = regs[1].to_le_bytes().map(|b| b as i8);
+        CFGregorianDate {
+            year: GuestArg::from_regs(&regs[0..1]),
+            month,
+            day,
+            hours,
+            minutes,
+            seconds: GuestArg::from_regs(&regs[2..4]),
+        }
+    }
+    fn to_regs(self, regs: &mut [u32]) {
+        self.year.to_regs(&mut regs[0..1]);
+        regs[1] =
+            u32::from_le_bytes([self.month, self.day, self.hours, self.minutes].map(|b| b as u8));
+        self.seconds.to_regs(&mut regs[2..4]);
+    }
+}
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 #[repr(C, packed)]
@@ -149,6 +171,28 @@ fn date_from_days(days: i64) -> (i64, i64, i64) {
     (year, month, day)
 }
 
+fn CFGregorianDateGetAbsoluteTime(
+    _env: &mut Environment,
+    date: CFGregorianDate,
+    tz: CFTimeZoneRef,
+) -> CFAbsoluteTime {
+    assert!(tz.is_null());
+    gregorian_date_to_absolute_time(date)
+}
+
+fn gregorian_date_to_absolute_time(date: CFGregorianDate) -> CFAbsoluteTime {
+    let CFGregorianDate {
+        year,
+        month,
+        day,
+        hours,
+        minutes,
+        seconds,
+    } = date;
+    let days = days_from_date(year.into(), month.into(), day.into());
+    days as f64 * DAY_SECONDS + f64::from(hours) * 3600.0 + f64::from(minutes) * 60.0 + seconds
+}
+
 fn CFAbsoluteTimeAddGregorianUnits(
     _env: &mut Environment,
     at: CFAbsoluteTime,
@@ -183,6 +227,7 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(CFAbsoluteTimeGetGregorianDate(_, _)),
     export_c_func!(CFAbsoluteTimeGetDayOfWeek(_, _)),
     export_c_func!(CFAbsoluteTimeAddGregorianUnits(_, _, _)),
+    export_c_func!(CFGregorianDateGetAbsoluteTime(_, _)),
 ];
 
 #[cfg(test)]
@@ -203,6 +248,40 @@ mod tests {
             let (year, month, day) = date_from_days(days);
             assert_eq!(days_from_date(year, month, day), days);
         }
+    }
+
+    #[test]
+    fn test_gregorian_date_to_absolute_time() {
+        let date = |year, month, day, hours, minutes, seconds| CFGregorianDate {
+            year,
+            month,
+            day,
+            hours,
+            minutes,
+            seconds,
+        };
+        assert_eq!(
+            gregorian_date_to_absolute_time(date(2001, 1, 1, 0, 0, 0.0)),
+            0.0
+        );
+        assert_eq!(
+            gregorian_date_to_absolute_time(date(2026, 10, 25, 13, 5, 9.5)),
+            at(2026, 10, 25) + 13.0 * 3600.0 + 5.0 * 60.0 + 9.5
+        );
+        // Past 2038, where a 32-bit time_t would overflow.
+        assert_eq!(
+            gregorian_date_to_absolute_time(date(2057, 10, 13, 0, 0, 0.0)),
+            at(2057, 10, 13)
+        );
+        // Passed in four registers, as the game did.
+        let regs = [0x7ea, 0x190a, 0, 0];
+        assert_eq!(
+            CFGregorianDate::from_regs(&regs),
+            date(2026, 10, 25, 0, 0, 0.0)
+        );
+        let mut out = [0; 4];
+        CFGregorianDate::from_regs(&regs).to_regs(&mut out);
+        assert_eq!(out, regs);
     }
 
     #[test]

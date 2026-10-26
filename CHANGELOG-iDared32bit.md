@@ -2,6 +2,12 @@
 
 iDared 32bit is based on [touchHLE](https://touchhle.org/). This file lists only iDared 32bit's own changes. The touchHLE changes it includes are in [CHANGELOG.md](CHANGELOG.md), which is touchHLE's own changelog, kept exactly as it is upstream.
 
+## NEXT
+
+Compatibility:
+
+- Fixed a crash in some games that work with dates.
+
 ## v1.5.0 (2026-10-23)
 
 Usability:
