@@ -760,7 +760,9 @@ impl ObjC {
                             continue;
                         }
 
-                        ivar.offset = Ptr::from_bits((ivar.offset).to_bits() + diff);
+                        // The app's code reads the offset from this variable.
+                        let offset = mem.read(ivar.offset);
+                        mem.write(ivar.offset.cast_mut(), offset + diff);
                     }
                 }
 
