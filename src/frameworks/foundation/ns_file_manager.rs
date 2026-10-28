@@ -5,6 +5,7 @@
  */
 //! `NSFileManager` etc.
 
+use super::ns_enumerator::{fast_enumeration_helper, NSFastEnumerationState};
 use super::{ns_array, ns_string, NSUInteger};
 use crate::dyld::{export_c_func, ConstantExports, FunctionExports, HostConstant};
 use crate::frameworks::foundation::ns_error::{NSCocoaErrorDomain, NSFileReadNoSuchFileError};
@@ -563,6 +564,16 @@ includingPropertiesForKeys:(id)_keys // NSArray*, only prefetching
         let rel = ns_string::from_rust_string(env, rel);
         autorelease(env, rel)
     }
+}
+
+// One object at a time, as on iOS, so that fileAttributes, level and
+// skipDescendents apply to the object the loop is on.
+- (NSUInteger)countByEnumeratingWithState:(MutPtr<NSFastEnumerationState>)state
+                                  objects:(MutPtr<id>)stackbuf
+                                    count:(NSUInteger)len {
+    fast_enumeration_helper(env, this, |env, _| {
+        msg![env; this nextObject]
+    }, state, stackbuf, len.min(1))
 }
 
 // Not to be confused with skipDescendants (iOS 4), which does the same.

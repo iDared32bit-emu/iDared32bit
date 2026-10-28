@@ -8,6 +8,7 @@ Compatibility:
 
 - Fixed a crash in some games that work with dates.
 - Fixed some games freezing during animations.
+- Fixed missing music in some games.
 
 ## v1.5.0 (2026-10-23)
 
