@@ -748,7 +748,12 @@ impl ObjC {
                             // anonymous bitfield
                             continue;
                         }
-                        max_alignment = max_alignment.max(ivar.alignment);
+                        // log2 of the alignment, or ~0 for a pointer's
+                        let alignment = match ivar.alignment {
+                            u32::MAX => 4,
+                            log2 => 1 << log2,
+                        };
+                        max_alignment = max_alignment.max(alignment);
                     }
 
                     let align_mask = max_alignment - 1;
