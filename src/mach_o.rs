@@ -321,6 +321,7 @@ impl MachO {
         // TODO: Check cpusubtype (should be some flavour of ARMv6/ARMv7)
 
         let split_segs = (header.flags & mach_object::MH_SPLIT_SEGS) != 0;
+        let prebound = (header.flags & mach_object::MH_PREBOUND) != 0;
 
         // Info used while parsing file
         let mut first_segment_base: Option<u32> = None;
@@ -534,6 +535,12 @@ impl MachO {
                                     entry | GuestFunction::THUMB_BIT
                                 } else {
                                     entry
+                                };
+                                // A prebound binary has the address already.
+                                let addend = if prebound {
+                                    addend.wrapping_sub(entry)
+                                } else {
+                                    addend
                                 };
                                 into_mem.write(addr, entry.wrapping_add(addend));
                             }
