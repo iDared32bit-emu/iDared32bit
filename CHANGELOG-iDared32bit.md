@@ -13,6 +13,7 @@ Compatibility:
 - Fixed a crash on iPhone and iPad when a game rotates the screen as it starts.
 - Fixed a crash when starting some older games.
 - Navigation bars in games are now drawn, with working buttons, so some games' settings and store screens no longer crash.
+- Segmented controls in games are now drawn and can be tapped, fixing a crash in some games' settings screens.
 
 ## v1.5.0 (2026-10-23)
 

@@ -344,6 +344,71 @@ pub(super) fn draw_button(
     set_layer_image(env, view, canvas);
 }
 
+const PLAIN_SEGMENT: Gloss = [
+    [1.0, 1.0, 1.0, 1.0],
+    [0.96, 0.96, 0.96, 1.0],
+    [0.9, 0.9, 0.9, 1.0],
+    [0.86, 0.86, 0.86, 1.0],
+];
+const SEGMENT_BORDER: [f32; 4] = [0.55, 0.55, 0.55, 1.0];
+const SELECTED_SEGMENT_BORDER: [f32; 4] = [0.16, 0.29, 0.55, 1.0];
+
+/// A plain segmented control, as on iPhone OS 3: a white rounded rectangle
+/// split into `segments` equal parts, with the `selected` one blue.
+pub(super) fn draw_segmented_control(
+    env: &mut Environment,
+    view: id,
+    segments: usize,
+    selected: Option<usize>,
+) {
+    let bounds: CGRect = msg![env; view bounds];
+    let scale = draw_scale(env);
+    let width = (bounds.size.width * scale).round() as u32;
+    let height = (bounds.size.height * scale).round() as u32;
+    if width == 0 || height == 0 || segments == 0 {
+        return;
+    }
+    let full = CGRect {
+        origin: CGPoint { x: 0.0, y: 0.0 },
+        size: CGSize {
+            width: width as f32,
+            height: height as f32,
+        },
+    };
+    let radius = 7.0 * scale;
+    let mut canvas = Canvas::new(width, height);
+    let border = Some((scale, SEGMENT_BORDER, SEGMENT_BORDER));
+    canvas.rounded_rect(full, radius, border, |t| gloss_at(&PLAIN_SEGMENT, t));
+    let segment_x = |i: usize| (width as usize * i / segments) as u32;
+    if let Some(i) = selected {
+        // The whole control in blue, of which only this segment is used, so
+        // the end segments keep the rounded corners.
+        let mut blue = Canvas::new(width, height);
+        let border = Some((scale, SELECTED_SEGMENT_BORDER, SELECTED_SEGMENT_BORDER));
+        blue.rounded_rect(full, radius, border, |t| gloss_at(&DONE_BUTTON, t));
+        for y in 0..height {
+            for x in segment_x(i)..segment_x(i + 1) {
+                let p = (y * width + x) as usize;
+                canvas.pixels[p] = blue.pixels[p];
+            }
+        }
+    }
+    for i in 1..segments {
+        let divider = CGRect {
+            origin: CGPoint {
+                x: segment_x(i) as f32 - scale / 2.0,
+                y: 0.0,
+            },
+            size: CGSize {
+                width: scale,
+                height: height as f32,
+            },
+        };
+        canvas.rounded_rect(divider, 0.0, None, |_| SEGMENT_BORDER);
+    }
+    set_layer_image(env, view, canvas);
+}
+
 pub const CLASSES: ClassExports = objc_classes! {
 
 (env, this, _cmd);
