@@ -1,0 +1,2 @@
+# Keeps the Team ID Xcode writes out of commits (see dev-docs/building.md)
+*.pbxproj filter=stripteam

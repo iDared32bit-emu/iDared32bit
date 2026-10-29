@@ -73,6 +73,13 @@ The NDK version must match `ndkVersion` in `android/app/build.gradle.kts`, curre
 ### iOS
 
 1. Set up signing: copy `Local.xcconfig.example` in the repository root to `Local.xcconfig`, and replace `YOUR_TEAM_ID` with your Apple Developer Team ID. `Local.xcconfig` is git-ignored and must not be committed. Without it the project still builds, but isn't signed.
+
+   Xcode sometimes writes the Team ID into the project file anyway (for example when archiving, or in the Signing & Capabilities tab). To keep it out of commits, run this once in your clone; `.gitattributes` then strips it from `project.pbxproj` files when they're staged:
+
+   ```
+   git config filter.stripteam.clean "sed '/DEVELOPMENT_TEAM = /d'"
+   ```
+
 2. Open `iphone/iDared32bit.xcodeproj` in Xcode.
 3. Select the **iDared 32bit** scheme and your device, then choose Product › Run.
 
