@@ -1289,18 +1289,18 @@ struct SettingsView: View {
                             headerColorSection
                             headerTextColorSection
                             Section {
-                                Toggle("Footer Background Color", isOn: $model.footerBackground)
+                                Toggle("Footer background color", isOn: $model.footerBackground)
                             } footer: {
                                 Text("Apply the header background color to the footer too.")
                             }
                             Section {
-                                Toggle("Hide Header Logo", isOn: $model.hideHeaderLogo)
+                                Toggle("Hide header logo", isOn: $model.hideHeaderLogo)
                             } footer: {
                                 Text("Shows the name instead, with a shorter header.")
                             }
                             wallpaperSection
                             Section {
-                                Toggle("Hide Icon Label", isOn: $model.hideIconLabels)
+                                Toggle("Hide icon label", isOn: $model.hideIconLabels)
                             } footer: {
                                 Text("Shows the icons without the games' names under them.")
                             }
@@ -1381,7 +1381,7 @@ struct SettingsView: View {
             .frame(maxWidth: .infinity)
             .padding(.vertical, 6)
         } header: {
-            Text("Header Background Color")
+            Text("Header background color")
         }
     }
 
@@ -1397,10 +1397,10 @@ struct SettingsView: View {
                 }
             )
             PhotosPicker(selection: picked, matching: .images) {
-                Text("Choose Wallpaper")
+                Text("Choose wallpaper")
             }
             if model.wallpaper != nil {
-                Button("Remove Wallpaper", role: .destructive) {
+                Button("Remove wallpaper", role: .destructive) {
                     model.removeWallpaper()
                 }
             }
@@ -1434,7 +1434,7 @@ struct SettingsView: View {
             .frame(maxWidth: .infinity)
             .padding(.vertical, 6)
         } header: {
-            Text("Header Text Color")
+            Text("Header text color")
         }
     }
 
