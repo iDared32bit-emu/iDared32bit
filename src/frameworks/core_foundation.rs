@@ -20,6 +20,7 @@ pub mod cf_allocator;
 pub mod cf_array;
 pub mod cf_bundle;
 pub mod cf_data;
+pub mod cf_date_formatter;
 pub mod cf_dictionary;
 pub mod cf_locale;
 pub mod cf_number;
@@ -57,6 +58,7 @@ pub const DYLIB: crate::dyld::HostDylib = crate::dyld::HostDylib {
         cf_bundle::FUNCTIONS,
         cf_socket::FUNCTIONS,
         cf_data::FUNCTIONS,
+        cf_date_formatter::FUNCTIONS,
         cf_locale::FUNCTIONS,
         cf_number::FUNCTIONS,
         cf_preferences::FUNCTIONS,
