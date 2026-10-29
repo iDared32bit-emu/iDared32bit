@@ -10,6 +10,7 @@ Compatibility:
 - Fixed some games freezing during animations.
 - Fixed missing music in some games.
 - Fixed some games crashing at random.
+- Fixed a crash on iPhone and iPad when a game rotates the screen as it starts.
 
 ## v1.5.0 (2026-10-23)
 

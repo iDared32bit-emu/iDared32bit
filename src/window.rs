@@ -1664,9 +1664,22 @@ impl Window {
                 sdl2_sys::SDL_SetWindowResizable(window_raw, sdl2_sys::SDL_bool::SDL_FALSE);
                 sdl2_sys::SDL_SetWindowResizable(window_raw, sdl2_sys::SDL_bool::SDL_TRUE);
             }
-            self.window
+            // iOS rotates the screen asynchronously, and SDL won't go
+            // fullscreen in a mode that doesn't match the screen yet, so let
+            // the rotation finish (pumping keeps the events queued).
+            let mut tries = 0;
+            while let Err(e) = self
+                .window
                 .set_fullscreen(sdl2::video::FullscreenType::True)
-                .unwrap();
+            {
+                tries += 1;
+                if tries == 100 {
+                    log!("Warning: couldn't make the window fullscreen: {}", e);
+                    break;
+                }
+                self.event_pump.pump_events();
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
         }
 
         self.device_orientation = new_orientation;
