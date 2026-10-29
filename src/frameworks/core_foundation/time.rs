@@ -7,7 +7,7 @@
 
 use crate::abi::GuestArg;
 use crate::dyld::{export_c_func, FunctionExports};
-use crate::frameworks::core_foundation::CFTypeRef;
+use crate::frameworks::core_foundation::{CFOptionFlags, CFTypeRef};
 use crate::frameworks::foundation::NSTimeInterval;
 use crate::libc::time::{time_t, timestamp_to_calendar_date};
 use crate::mem::SafeRead;
@@ -72,6 +72,8 @@ pub struct CFGregorianUnits {
     pub minutes: i32, // SInt32
     pub seconds: f64, // double
 }
+unsafe impl SafeRead for CFGregorianUnits {}
+impl_GuestRet_for_large_struct!(CFGregorianUnits);
 impl GuestArg for CFGregorianUnits {
     const REG_COUNT: usize = 7;
 
@@ -221,6 +223,83 @@ fn add_gregorian_units(at: CFAbsoluteTime, units: CFGregorianUnits) -> CFAbsolut
         + units.seconds
 }
 
+const kCFGregorianUnitsYears: CFOptionFlags = 1 << 0;
+const kCFGregorianUnitsMonths: CFOptionFlags = 1 << 1;
+const kCFGregorianUnitsDays: CFOptionFlags = 1 << 2;
+const kCFGregorianUnitsHours: CFOptionFlags = 1 << 3;
+const kCFGregorianUnitsMinutes: CFOptionFlags = 1 << 4;
+const kCFGregorianUnitsSeconds: CFOptionFlags = 1 << 5;
+
+fn CFAbsoluteTimeGetDifferenceAsGregorianUnits(
+    _env: &mut Environment,
+    at1: CFAbsoluteTime,
+    at2: CFAbsoluteTime,
+    tz: CFTimeZoneRef,
+    unit_flags: CFOptionFlags,
+) -> CFGregorianUnits {
+    assert!(tz.is_null());
+    difference_as_gregorian_units(at1, at2, unit_flags)
+}
+
+/// The units that, added to `at2`, give `at1`, using only the units asked
+/// for. Each is counted whole, largest first; seconds take what's left.
+fn difference_as_gregorian_units(
+    at1: CFAbsoluteTime,
+    at2: CFAbsoluteTime,
+    unit_flags: CFOptionFlags,
+) -> CFGregorianUnits {
+    let mut units = CFGregorianUnits {
+        years: 0,
+        months: 0,
+        days: 0,
+        hours: 0,
+        minutes: 0,
+        seconds: 0.0,
+    };
+    let sign = if at1 < at2 { -1 } else { 1 };
+    let fits = |units: CFGregorianUnits| {
+        let at = add_gregorian_units(at2, units);
+        if sign > 0 {
+            at <= at1
+        } else {
+            at >= at1
+        }
+    };
+    // Years and months vary in length, so count them by adding.
+    if unit_flags & kCFGregorianUnitsYears != 0 {
+        while fits(CFGregorianUnits {
+            years: units.years + sign,
+            ..units
+        }) {
+            units.years += sign;
+        }
+    }
+    if unit_flags & kCFGregorianUnitsMonths != 0 {
+        while fits(CFGregorianUnits {
+            months: units.months + sign,
+            ..units
+        }) {
+            units.months += sign;
+        }
+    }
+    let mut rest = at1 - add_gregorian_units(at2, units);
+    let mut count = |flag, unit_seconds: f64| {
+        if unit_flags & flag == 0 {
+            return 0;
+        }
+        let count = (rest / unit_seconds).trunc();
+        rest -= count * unit_seconds;
+        count as i32
+    };
+    units.days = count(kCFGregorianUnitsDays, DAY_SECONDS);
+    units.hours = count(kCFGregorianUnitsHours, 3600.0);
+    units.minutes = count(kCFGregorianUnitsMinutes, 60.0);
+    if unit_flags & kCFGregorianUnitsSeconds != 0 {
+        units.seconds = rest;
+    }
+    units
+}
+
 pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(CFAbsoluteTimeGetCurrent()),
     export_c_func!(CFTimeZoneCopySystem()),
@@ -228,6 +307,7 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(CFAbsoluteTimeGetDayOfWeek(_, _)),
     export_c_func!(CFAbsoluteTimeAddGregorianUnits(_, _, _)),
     export_c_func!(CFGregorianDateGetAbsoluteTime(_, _)),
+    export_c_func!(CFAbsoluteTimeGetDifferenceAsGregorianUnits(_, _, _, _)),
 ];
 
 #[cfg(test)]
@@ -306,5 +386,40 @@ mod tests {
             add(at(2001, 1, 1) + 5.5, 0, 1, 0, 1.0),
             at(2001, 2, 1) + 6.5
         );
+    }
+
+    #[test]
+    fn test_difference_as_gregorian_units() {
+        let units = |years, months, days, hours, minutes, seconds| CFGregorianUnits {
+            years,
+            months,
+            days,
+            hours,
+            minutes,
+            seconds,
+        };
+        let all = 0x3f;
+        let diff = difference_as_gregorian_units;
+        assert_eq!(
+            diff(at(2026, 10, 29) + 3725.5, at(1995, 10, 30), all),
+            units(30, 11, 29, 1, 2, 5.5)
+        );
+        assert_eq!(
+            diff(at(1995, 10, 30), at(2026, 10, 29) + 3725.5, all),
+            units(-30, -11, -30, -1, -2, -5.5)
+        );
+        // Only days: the whole difference is counted in days.
+        assert_eq!(
+            diff(at(2002, 1, 1) + 60.0, at(2001, 1, 1), 1 << 2),
+            units(0, 0, 365, 0, 0, 0.0)
+        );
+        // Months clamp the day, as when adding them.
+        assert_eq!(
+            diff(at(2001, 2, 28), at(2001, 1, 31), all),
+            units(0, 1, 0, 0, 0, 0.0)
+        );
+        // Each result added back gives the first time.
+        let (at1, at2) = (at(2057, 3, 1) + 0.25, at(2004, 2, 29));
+        assert_eq!(add_gregorian_units(at2, diff(at1, at2, all)), at1);
     }
 }
