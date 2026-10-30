@@ -102,9 +102,15 @@ struct ArrayStateBackup {
     buffer_binding: GLuint,
 }
 
+/// GL_OES_point_size_array has no OpenGL 2.1 equivalent, so this layer
+/// keeps the array's state itself.
+const POINT_SIZE_ARRAY_OES: GLenum = 0x8B9C;
+const POINT_SIZE_ARRAY_TYPE_OES: GLenum = 0x898A;
+const POINT_SIZE_ARRAY_STRIDE_OES: GLenum = 0x898B;
+const POINT_SIZE_ARRAY_POINTER_OES: GLenum = 0x898C;
+const POINT_SIZE_ARRAY_BUFFER_BINDING_OES: GLenum = 0x8B9F;
+
 /// List of arrays shared by OpenGL ES 1.1 and OpenGL 2.1.
-///
-/// TODO: GL_POINT_SIZE_ARRAY_OES?
 pub const ARRAYS: &[ArrayInfo] = &[
     ArrayInfo {
         name: gl21::COLOR_ARRAY,
@@ -411,6 +417,7 @@ pub struct GLES1OnGL2State {
     pointer_is_fixed_point: [bool; ARRAYS.len()],
     fixed_point_texture_units: HashSet<GLenum>,
     fixed_point_translation_buffers: [Vec<GLfloat>; ARRAYS.len()],
+    point_size_array_enabled: bool,
 }
 
 pub struct GLES1OnGL2Context {
@@ -431,6 +438,7 @@ impl GLESContext for GLES1OnGL2Context {
                 pointer_is_fixed_point: [false; ARRAYS.len()],
                 fixed_point_texture_units: HashSet::new(),
                 fixed_point_translation_buffers: [Vec::new(), Vec::new(), Vec::new(), Vec::new()],
+                point_size_array_enabled: false,
             },
             is_loaded: false,
         })
@@ -496,6 +504,24 @@ impl GLES1OnGL2<'_> {
         );
         self.state.pending_error = Some(gl21::INVALID_ENUM);
         true
+    }
+
+    /// The point size array's parameters. glPointSizePointerOES isn't
+    /// implemented, so all but whether it's enabled are the defaults.
+    fn point_size_array_param(&self, pname: GLenum) -> Option<GLint> {
+        match pname {
+            POINT_SIZE_ARRAY_OES => Some(self.state.point_size_array_enabled.into()),
+            POINT_SIZE_ARRAY_TYPE_OES => Some(gl21::FLOAT as GLint),
+            POINT_SIZE_ARRAY_STRIDE_OES | POINT_SIZE_ARRAY_BUFFER_BINDING_OES => Some(0),
+            _ => None,
+        }
+    }
+
+    /// Per-point sizes can't be drawn with OpenGL 2.1's fixed function.
+    fn check_point_size_array(&self, mode: GLenum) {
+        if mode == gl21::POINTS && self.state.point_size_array_enabled {
+            unimplemented!("Drawing points with GL_POINT_SIZE_ARRAY_OES");
+        }
     }
 
     /// If any arrays with fixed-point data are in use at the time of a draw
@@ -740,6 +766,9 @@ impl GLES for GLES1OnGL2<'_> {
         gl21::Enable(cap);
     }
     unsafe fn IsEnabled(&mut self, cap: GLenum) -> GLboolean {
+        if cap == POINT_SIZE_ARRAY_OES {
+            return self.state.point_size_array_enabled.into();
+        }
         assert!(
             CAPABILITIES.contains(&cap) || ARRAYS.iter().any(|&ArrayInfo { name, .. }| name == cap)
         );
@@ -763,6 +792,10 @@ impl GLES for GLES1OnGL2<'_> {
         gl21::ClientActiveTexture(texture);
     }
     unsafe fn EnableClientState(&mut self, array: GLenum) {
+        if array == POINT_SIZE_ARRAY_OES {
+            self.state.point_size_array_enabled = true;
+            return;
+        }
         if CAPABILITIES.contains(&array) {
             log_dbg!(
                 "Tolerating glEnableClientState({:#x}) of a capability",
@@ -774,6 +807,10 @@ impl GLES for GLES1OnGL2<'_> {
         gl21::EnableClientState(array);
     }
     unsafe fn DisableClientState(&mut self, array: GLenum) {
+        if array == POINT_SIZE_ARRAY_OES {
+            self.state.point_size_array_enabled = false;
+            return;
+        }
         if CAPABILITIES.contains(&array) {
             log_dbg!(
                 "Tolerating glDisableClientState({:#x}) of a capability",
@@ -786,6 +823,10 @@ impl GLES for GLES1OnGL2<'_> {
     }
     unsafe fn GetBooleanv(&mut self, pname: GLenum, params: *mut GLboolean) {
         if self.reject_es2_only_get_param("glGetBooleanv", pname) {
+            return;
+        }
+        if let Some(value) = self.point_size_array_param(pname) {
+            *params = (value != 0).into();
             return;
         }
         let (type_, count) = GET_PARAMS.get_type_info(pname);
@@ -813,6 +854,10 @@ impl GLES for GLES1OnGL2<'_> {
         if self.reject_es2_only_get_param("glGetFloatv", pname) {
             return;
         }
+        if let Some(value) = self.point_size_array_param(pname) {
+            *params = value as GLfloat;
+            return;
+        }
         let (type_, _count) = GET_PARAMS.get_type_info(pname);
         match type_ {
             ParamType::Float | ParamType::FloatSpecial => {
@@ -823,6 +868,10 @@ impl GLES for GLES1OnGL2<'_> {
     }
     unsafe fn GetIntegerv(&mut self, pname: GLenum, params: *mut GLint) {
         if self.reject_es2_only_get_param("glGetIntegerv", pname) {
+            return;
+        }
+        if let Some(value) = self.point_size_array_param(pname) {
+            *params = value;
             return;
         }
 
@@ -851,6 +900,10 @@ impl GLES for GLES1OnGL2<'_> {
         gl21::GetTexEnvfv(target, pname, params);
     }
     unsafe fn GetPointerv(&mut self, pname: GLenum, params: *mut *const GLvoid) {
+        if pname == POINT_SIZE_ARRAY_POINTER_OES {
+            *params = std::ptr::null();
+            return;
+        }
         assert!(ARRAYS
             .iter()
             .any(|&ArrayInfo { pointer, .. }| pname == pointer));
@@ -1391,6 +1444,7 @@ impl GLES for GLES1OnGL2<'_> {
             gl21::TRIANGLES
         ]
         .contains(&mode));
+        self.check_point_size_array(mode);
 
         let fixed_point_arrays_state_backup = self.translate_fixed_point_arrays(first, count);
 
@@ -1416,6 +1470,7 @@ impl GLES for GLES1OnGL2<'_> {
         ]
         .contains(&mode));
         assert!(type_ == gl21::UNSIGNED_BYTE || type_ == gl21::UNSIGNED_SHORT);
+        self.check_point_size_array(mode);
 
         let fixed_point_arrays_state_backup = if self
             .state
