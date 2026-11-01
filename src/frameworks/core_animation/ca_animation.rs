@@ -829,22 +829,33 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 - (())setType:(CATransitionType)transition_type {
     assert!(transition_type != nil);
-    env.objc.borrow_mut::<CATransitionHostObject>(this).transition_type = msg![env; transition_type copy];
+    let new: id = msg![env; transition_type copy];
+    let host = env.objc.borrow_mut::<CATransitionHostObject>(this);
+    let old = std::mem::replace(&mut host.transition_type, new);
+    release(env, old);
 }
 - (CATransitionType)type {
     env.objc.borrow::<CATransitionHostObject>(this).transition_type
 }
 
 - (())setSubtype:(CATransitionSubtype)transition_subtype {
-    env.objc.borrow_mut::<CATransitionHostObject>(this).transition_subtype = msg![env; transition_subtype copy];
+    let new: id = msg![env; transition_subtype copy];
+    let host = env.objc.borrow_mut::<CATransitionHostObject>(this);
+    let old = std::mem::replace(&mut host.transition_subtype, new);
+    release(env, old);
 }
 - (CATransitionSubtype)subtype {
     env.objc.borrow::<CATransitionHostObject>(this).transition_subtype
 }
 
 - (())dealloc {
-    let &CATransitionHostObject { transition_type, .. } = env.objc.borrow(this);
+    let &CATransitionHostObject {
+        transition_type,
+        transition_subtype,
+        ..
+    } = env.objc.borrow(this);
     release(env, transition_type);
+    release(env, transition_subtype);
     msg_super![env; this dealloc]
 }
 
