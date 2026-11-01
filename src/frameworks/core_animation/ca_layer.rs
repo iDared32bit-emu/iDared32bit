@@ -6,6 +6,7 @@
 //! `CALayer`.
 
 use crate::dyld::{ConstantExports, HostConstant};
+use crate::frameworks::core_animation::ca_animation::get_transition;
 use crate::frameworks::core_animation::ca_transaction;
 use crate::frameworks::core_animation::ca_transform_3d::CATransform3D;
 use crate::frameworks::core_foundation::time::CFTimeInterval;
@@ -73,6 +74,9 @@ pub(super) struct CALayerHostObject {
     pub(super) gles_texture_contents: id,
     pub(super) animations: HashMap<String, id>, // CAAnimation*
     pub(super) anonymous_animations: HashSet<id>, // CAAnimation*
+    /// Presentation layer only: a fade transition and how far it's gone (0
+    /// to 1), for the compositor.
+    pub(super) fade_transition: Option<(id, f32)>,
 }
 impl HostObject for CALayerHostObject {}
 
@@ -151,6 +155,7 @@ pub const CLASSES: ClassExports = objc_classes! {
         gles_texture_contents: nil,
         animations: HashMap::new(),
         anonymous_animations: HashSet::new(),
+        fade_transition: None,
     });
     env.objc.alloc_object(this, host_object, &mut env.mem)
 }
@@ -623,6 +628,10 @@ pub const CLASSES: ClassExports = objc_classes! {
             forKey:(id)key { // NSString*
     // Like Core Animation, keep a copy, so the app can reuse the original.
     let anim: id = msg![env; anim copy];
+    if get_transition(env, anim).is_some() {
+        // The compositor keeps a picture of the layer from before.
+        super::composition::add_transition(env, this, anim);
+    }
     let duration: CFTimeInterval = msg![env; anim duration];
     if duration == 0.0 {
         // From the docs:

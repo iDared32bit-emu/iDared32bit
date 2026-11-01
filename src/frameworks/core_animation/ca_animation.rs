@@ -848,6 +848,24 @@ pub const CLASSES: ClassExports = objc_classes! {
     env.objc.borrow::<CATransitionHostObject>(this).transition_subtype
 }
 
+- (())_touchHLE_copyPropertiesFrom:(id)other { // CATransition*
+    () = msg_super![env; this _touchHLE_copyPropertiesFrom:other];
+    let &CATransitionHostObject {
+        start_progress,
+        end_progress,
+        transition_type,
+        transition_subtype,
+        ..
+    } = env.objc.borrow(other);
+    retain(env, transition_type);
+    retain(env, transition_subtype);
+    let host = env.objc.borrow_mut::<CATransitionHostObject>(this);
+    host.start_progress = start_progress;
+    host.end_progress = end_progress;
+    host.transition_type = transition_type;
+    host.transition_subtype = transition_subtype;
+}
+
 - (())dealloc {
     let &CATransitionHostObject {
         transition_type,
@@ -862,6 +880,29 @@ pub const CLASSES: ClassExports = objc_classes! {
 @end
 
 };
+
+/// A transition's type and its start and end progress, or [None] if the
+/// animation isn't a transition.
+pub fn get_transition(env: &mut Environment, animation: id) -> Option<(String, f32, f32)> {
+    let class = env.objc.get_known_class("CATransition", &mut env.mem);
+    let animation_class: Class = msg![env; animation class];
+    if !env.objc.class_is_subclass_of(animation_class, class) {
+        return None;
+    }
+    let &CATransitionHostObject {
+        start_progress,
+        end_progress,
+        transition_type,
+        ..
+    } = env.objc.borrow(animation);
+    // Fade is the documented default.
+    let transition_type = if transition_type == nil {
+        kCATransitionFade.to_string()
+    } else {
+        to_rust_string(env, transition_type).into_owned()
+    };
+    Some((transition_type, start_progress, end_progress))
+}
 
 pub fn get_animation_start_time(
     env: &mut Environment,
