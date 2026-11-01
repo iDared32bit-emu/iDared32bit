@@ -4,6 +4,10 @@ iDared 32bit is based on [touchHLE](https://touchhle.org/). This file lists only
 
 ## NEXT
 
+Usability:
+
+- Fixed missing icons for some games in the app picker.
+
 Compatibility:
 
 - Fixed crashes in some games that work with dates.
