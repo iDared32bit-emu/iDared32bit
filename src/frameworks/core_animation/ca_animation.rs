@@ -20,6 +20,9 @@ use crate::Environment;
 use crate::{impl_HostObject_with_superclass, msg_class, msg_super};
 use std::collections::HashMap;
 
+/// The layer key transitions are added under.
+const kCATransition: &str = "transition";
+
 type CATransitionType = id; // NSString*
 const kCATransitionFade: &str = "fade";
 const kCATransitionMoveIn: &str = "moveIn";
@@ -74,6 +77,7 @@ pub const CONSTANTS: ConstantExports = &[
         "_kCAAnimationRotateAutoReverse",
         HostConstant::NSString(kCAAnimationRotateAutoReverse),
     ),
+    ("_kCATransition", HostConstant::NSString(kCATransition)),
     // `CATransitionType` values.
     (
         "_kCATransitionFade",
