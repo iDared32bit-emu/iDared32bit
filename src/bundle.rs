@@ -271,12 +271,11 @@ impl Bundle {
     }
 
     pub fn load_icon(&self, fs: &Fs) -> Result<Image, String> {
-        let bytes = if let Some(path) = self.icon_path() {
-            fs.read(path)
-                .map_err(|_| "Could not read icon file".to_string())?
+        let bytes = if let Some(bytes) = self.icon_path().and_then(|path| fs.read(path).ok()) {
+            bytes
         } else {
-            // No explicit icon was specified in the plist; fall back to
-            // checking the filesystem directly for Icon.png, then icon.png.
+            // No explicit icon was specified in the plist, or it doesn't
+            // exist; fall back to Icon.png, then icon.png.
             fs.read(self.path.join("Icon.png"))
                 .or_else(|_| fs.read(self.path.join("icon.png")))
                 .map_err(|_| "Could not find app icon (Icon.png or icon.png)".to_string())?
