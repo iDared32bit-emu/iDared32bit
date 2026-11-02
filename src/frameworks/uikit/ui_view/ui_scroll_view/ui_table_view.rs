@@ -12,7 +12,10 @@ use crate::frameworks::core_graphics::{CGFloat, CGPoint, CGRect, CGSize};
 use crate::frameworks::foundation::ns_index_path::new_index_path;
 use crate::frameworks::foundation::ns_string::get_static_str;
 use crate::frameworks::foundation::{NSInteger, NSUInteger};
-use crate::frameworks::uikit::ui_view::ui_table_view_cell::DEFAULT_ROW_HEIGHT;
+use crate::frameworks::uikit::ui_view::ui_table_view_cell::{
+    delete_button_rect, UITableViewCellEditingStyle, UITableViewCellEditingStyleDelete,
+    UITableViewCellEditingStyleInsert, DEFAULT_ROW_HEIGHT, EDITING_INDENT,
+};
 use crate::objc::{
     autorelease, id, impl_HostObject_with_superclass, msg, msg_class, msg_send, msg_super, nil,
     objc_classes, release, retain, todo_objc_setter, ClassExports, NSZonePtr, SEL,
@@ -39,6 +42,9 @@ type Row = (NSInteger, NSInteger);
 
 /// How far a touch can move and still be a tap.
 const TAP_SLOP: CGFloat = 10.0;
+/// How far across, and how little up or down, a swipe to delete moves.
+const SWIPE_DISTANCE: CGFloat = 30.0;
+const SWIPE_MAX_DRIFT: CGFloat = 20.0;
 
 struct Section {
     /// Where the section starts, including its header.
@@ -76,6 +82,12 @@ pub struct UITableViewHostObject {
     selected: Option<Row>,
     /// The row being touched, and where the touch began in the window.
     touched: Option<(Row, CGPoint)>,
+    editing: bool,
+    allows_selection_during_editing: bool,
+    /// The row showing its Delete button, if any.
+    delete_confirmation: Option<Row>,
+    /// Whether that's from a swipe, outside editing mode.
+    swiped: bool,
 }
 impl_HostObject_with_superclass!(UITableViewHostObject);
 impl Default for UITableViewHostObject {
@@ -98,6 +110,10 @@ impl Default for UITableViewHostObject {
             separators: Vec::new(),
             selected: None,
             touched: None,
+            editing: false,
+            allows_selection_during_editing: false,
+            delete_confirmation: None,
+            swiped: false,
         }
     }
 }
@@ -238,6 +254,25 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 - (())setAllowsSelection:(bool)allows {
     env.objc.borrow_mut::<UITableViewHostObject>(this).allows_selection = allows;
+}
+
+- (bool)isEditing {
+    env.objc.borrow::<UITableViewHostObject>(this).editing
+}
+- (())setEditing:(bool)editing {
+    () = msg![env; this setEditing:editing animated:false];
+}
+// Changes straight away, even when animated.
+- (())setEditing:(bool)editing animated:(bool)_animated {
+    hide_delete_confirmation(env, this);
+    env.objc.borrow_mut::<UITableViewHostObject>(this).editing = editing;
+    () = msg![env; this setNeedsLayout];
+}
+- (bool)allowsSelectionDuringEditing {
+    env.objc.borrow::<UITableViewHostObject>(this).allows_selection_during_editing
+}
+- (())setAllowsSelectionDuringEditing:(bool)allows {
+    env.objc.borrow_mut::<UITableViewHostObject>(this).allows_selection_during_editing = allows;
 }
 
 - (())setTableHeaderView:(id)view {
@@ -430,10 +465,11 @@ pub const CLASSES: ClassExports = objc_classes! {
     let point: CGPoint = msg![env; touch locationInView:this];
     let start: CGPoint = msg![env; touch locationInView:nil];
     let Some(row) = row_at_point(env, this, point) else {
+        env.objc.borrow_mut::<UITableViewHostObject>(this).touched = None;
         return;
     };
     env.objc.borrow_mut::<UITableViewHostObject>(this).touched = Some((row, start));
-    if env.objc.borrow::<UITableViewHostObject>(this).allows_selection {
+    if can_select(env, this) {
         set_highlighted(env, this, row, true);
     }
 }
@@ -442,23 +478,34 @@ pub const CLASSES: ClassExports = objc_classes! {
     if let Some((row, start)) = env.objc.borrow::<UITableViewHostObject>(this).touched {
         let touch: id = msg![env; touches anyObject];
         let point: CGPoint = msg![env; touch locationInView:nil];
-        if (point.x - start.x).hypot(point.y - start.y) > TAP_SLOP {
-            // It's a scroll, not a tap.
+        let (dx, dy) = (point.x - start.x, point.y - start.y);
+        if dx.abs() > SWIPE_DISTANCE && dy.abs() < SWIPE_MAX_DRIFT {
+            env.objc.borrow_mut::<UITableViewHostObject>(this).touched = None;
+            set_highlighted(env, this, row, false);
+            swipe_to_delete(env, this, row);
+            return;
+        }
+        if dy.abs() > TAP_SLOP {
+            // It's a scroll, not a tap. Moving across could still be a swipe.
             env.objc.borrow_mut::<UITableViewHostObject>(this).touched = None;
             set_highlighted(env, this, row, false);
         }
     }
     () = msg_super![env; this touchesMoved:touches withEvent:event];
 }
-- (())touchesEnded:(id)_touches // NSSet* of UITouch*
+- (())touchesEnded:(id)touches // NSSet* of UITouch*
          withEvent:(id)_event { // UIEvent*
-    let Some((row, _)) = env.objc.borrow_mut::<UITableViewHostObject>(this).touched.take() else {
+    let Some((row, start)) = env.objc.borrow_mut::<UITableViewHostObject>(this).touched.take() else {
         return;
     };
     set_highlighted(env, this, row, false);
-    if env.objc.borrow::<UITableViewHostObject>(this).allows_selection {
-        select_by_user(env, this, row);
+    let touch: id = msg![env; touches anyObject];
+    let end: CGPoint = msg![env; touch locationInView:nil];
+    if (end.x - start.x).hypot(end.y - start.y) > TAP_SLOP {
+        return;
     }
+    let point: CGPoint = msg![env; touch locationInView:this];
+    tap(env, this, row, point);
 }
 - (())touchesCancelled:(id)_touches // NSSet* of UITouch*
              withEvent:(id)_event { // UIEvent*
@@ -525,6 +572,9 @@ fn reload(env: &mut Environment, this: id) {
 }
 
 fn reload_keeping_selection(env: &mut Environment, this: id) {
+    let host = env.objc.borrow_mut::<UITableViewHostObject>(this);
+    host.delete_confirmation = None;
+    host.swiped = false;
     // The cells and headers on screen go, to be made again.
     let host = env.objc.borrow_mut::<UITableViewHostObject>(this);
     host.loaded = true;
@@ -726,6 +776,189 @@ fn visible_cell(env: &mut Environment, this: id, row: Row) -> Option<id> {
         .map(|&(_, cell)| cell)
 }
 
+fn can_select(env: &mut Environment, this: id) -> bool {
+    let host = env.objc.borrow::<UITableViewHostObject>(this);
+    host.allows_selection
+        && host.delete_confirmation.is_none()
+        && (!host.editing || host.allows_selection_during_editing)
+}
+
+/// Whether a row can be edited: by default, if the data source can commit
+/// edits.
+fn can_edit(env: &mut Environment, this: id, (section, row): Row) -> bool {
+    let data_source: id = msg![env; this dataSource];
+    if !responds(
+        env,
+        data_source,
+        "tableView:commitEditingStyle:forRowAtIndexPath:",
+    ) {
+        return false;
+    }
+    if !responds(env, data_source, "tableView:canEditRowAtIndexPath:") {
+        return true;
+    }
+    let index_path = new_index_path(env, &[section as NSUInteger, row as NSUInteger]);
+    msg![env; data_source tableView:this canEditRowAtIndexPath:index_path]
+}
+
+fn editing_style(
+    env: &mut Environment,
+    this: id,
+    (section, row): Row,
+) -> UITableViewCellEditingStyle {
+    let delegate: id = msg![env; this delegate];
+    if !responds(env, delegate, "tableView:editingStyleForRowAtIndexPath:") {
+        return UITableViewCellEditingStyleDelete;
+    }
+    let index_path = new_index_path(env, &[section as NSUInteger, row as NSUInteger]);
+    msg![env; delegate tableView:this editingStyleForRowAtIndexPath:index_path]
+}
+
+/// Tells a cell whether it's editing, how, and whether its Delete button
+/// shows.
+fn update_cell_editing(env: &mut Environment, this: id, row: Row, cell: id) {
+    let &UITableViewHostObject {
+        editing,
+        delete_confirmation,
+        swiped,
+        ..
+    } = env.objc.borrow(this);
+    let confirming = delete_confirmation == Some(row);
+    let cell_editing = editing && can_edit(env, this, row);
+    let style = if cell_editing {
+        editing_style(env, this, row)
+    } else {
+        UITableViewCellEditingStyleDelete
+    };
+    () = msg![env; cell _touchHLE_setEditingStyle:style];
+    // A swiped row shows only its Delete button.
+    () = msg![env; cell setEditing:(cell_editing && !(confirming && swiped)) animated:false];
+    () = msg![env; cell _touchHLE_setShowingDeleteConfirmation:confirming];
+}
+
+fn show_delete_confirmation(env: &mut Environment, this: id, row: Row, swiped: bool) {
+    hide_delete_confirmation(env, this);
+    let host = env.objc.borrow_mut::<UITableViewHostObject>(this);
+    host.delete_confirmation = Some(row);
+    host.swiped = swiped;
+    () = msg![env; this setNeedsLayout];
+}
+
+fn hide_delete_confirmation(env: &mut Environment, this: id) {
+    let host = env.objc.borrow_mut::<UITableViewHostObject>(this);
+    let Some((section, row)) = host.delete_confirmation.take() else {
+        return;
+    };
+    let swiped = std::mem::take(&mut host.swiped);
+    () = msg![env; this setNeedsLayout];
+    let delegate: id = msg![env; this delegate];
+    if swiped && responds(env, delegate, "tableView:didEndEditingRowAtIndexPath:") {
+        let index_path = new_index_path(env, &[section as NSUInteger, row as NSUInteger]);
+        () = msg![env; delegate tableView:this didEndEditingRowAtIndexPath:index_path];
+    }
+}
+
+/// Outside editing mode, swiping across a row shows its Delete button.
+fn swipe_to_delete(env: &mut Environment, this: id, (section, row): Row) {
+    if env.objc.borrow::<UITableViewHostObject>(this).editing
+        || !can_edit(env, this, (section, row))
+        || editing_style(env, this, (section, row)) != UITableViewCellEditingStyleDelete
+    {
+        return;
+    }
+    let delegate: id = msg![env; this delegate];
+    if responds(env, delegate, "tableView:willBeginEditingRowAtIndexPath:") {
+        let index_path = new_index_path(env, &[section as NSUInteger, row as NSUInteger]);
+        () = msg![env; delegate tableView:this willBeginEditingRowAtIndexPath:index_path];
+    }
+    show_delete_confirmation(env, this, (section, row), true);
+}
+
+/// Asks the data source to delete or insert a row.
+fn commit_edit(
+    env: &mut Environment,
+    this: id,
+    (section, row): Row,
+    style: UITableViewCellEditingStyle,
+) {
+    let swiped = env.objc.borrow::<UITableViewHostObject>(this).swiped;
+    // The delegate is told a swipe ended after the commit.
+    let host = env.objc.borrow_mut::<UITableViewHostObject>(this);
+    host.delete_confirmation = None;
+    host.swiped = false;
+    () = msg![env; this setNeedsLayout];
+
+    let data_source: id = msg![env; this dataSource];
+    let index_path = new_index_path(env, &[section as NSUInteger, row as NSUInteger]);
+    () = msg![env; data_source tableView:this
+                       commitEditingStyle:style
+                        forRowAtIndexPath:index_path];
+
+    let delegate: id = msg![env; this delegate];
+    if swiped && responds(env, delegate, "tableView:didEndEditingRowAtIndexPath:") {
+        () = msg![env; delegate tableView:this didEndEditingRowAtIndexPath:index_path];
+    }
+}
+
+/// A tap on a row, at `point` in the table's co-ordinates.
+fn tap(env: &mut Environment, this: id, row: Row, point: CGPoint) {
+    // While a Delete button shows, a tap either presses it or hides it.
+    if let Some(confirming) = env
+        .objc
+        .borrow::<UITableViewHostObject>(this)
+        .delete_confirmation
+    {
+        let rect = row_rect(env, this, confirming);
+        let bounds = CGRect {
+            origin: CGPoint { x: 0.0, y: 0.0 },
+            size: rect.size,
+        };
+        let button = delete_button_rect(bounds);
+        let (x, y) = (point.x - rect.origin.x, point.y - rect.origin.y);
+        let on_button = row == confirming
+            && x >= button.origin.x
+            && x < button.origin.x + button.size.width
+            && y >= button.origin.y
+            && y < button.origin.y + button.size.height;
+        if on_button {
+            commit_edit(env, this, confirming, UITableViewCellEditingStyleDelete);
+        } else {
+            hide_delete_confirmation(env, this);
+        }
+        return;
+    }
+
+    if env.objc.borrow::<UITableViewHostObject>(this).editing {
+        if point.x < EDITING_INDENT && can_edit(env, this, row) {
+            match editing_style(env, this, row) {
+                UITableViewCellEditingStyleDelete => {
+                    show_delete_confirmation(env, this, row, false)
+                }
+                UITableViewCellEditingStyleInsert => {
+                    commit_edit(env, this, row, UITableViewCellEditingStyleInsert)
+                }
+                _ => (),
+            }
+            return;
+        }
+        if !env
+            .objc
+            .borrow::<UITableViewHostObject>(this)
+            .allows_selection_during_editing
+        {
+            return;
+        }
+    }
+
+    if env
+        .objc
+        .borrow::<UITableViewHostObject>(this)
+        .allows_selection
+    {
+        select_by_user(env, this, row);
+    }
+}
+
 fn set_highlighted(env: &mut Environment, this: id, row: Row, highlighted: bool) {
     if let Some(cell) = visible_cell(env, this, row) {
         () = msg![env; cell setHighlighted:highlighted];
@@ -861,6 +1094,7 @@ fn layout_cells(env: &mut Environment, this: id) {
             cell
         };
         () = msg![env; cell setFrame:frame];
+        update_cell_editing(env, this, (section, row), cell);
         separator_ys.push(frame.origin.y + frame.size.height);
     }
 

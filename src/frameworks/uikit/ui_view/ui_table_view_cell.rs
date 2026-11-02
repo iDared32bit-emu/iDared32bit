@@ -9,11 +9,14 @@
 //! Accessories are remembered but not drawn yet.
 
 use crate::frameworks::core_graphics::{CGFloat, CGPoint, CGRect, CGSize};
+use crate::frameworks::foundation::ns_string::get_static_str;
 use crate::frameworks::foundation::NSInteger;
+use crate::frameworks::uikit::ui_font::UITextAlignmentCenter;
 use crate::objc::{
     id, impl_HostObject_with_superclass, msg, msg_class, msg_super, nil, objc_classes, release,
     ClassExports, NSZonePtr,
 };
+use crate::Environment;
 
 pub type UITableViewCellStyle = NSInteger;
 const UITableViewCellStyleDefault: UITableViewCellStyle = 0;
@@ -25,8 +28,34 @@ type UITableViewCellSelectionStyle = NSInteger;
 const UITableViewCellSelectionStyleNone: UITableViewCellSelectionStyle = 0;
 const UITableViewCellSelectionStyleBlue: UITableViewCellSelectionStyle = 1;
 
+pub type UITableViewCellEditingStyle = NSInteger;
+pub const UITableViewCellEditingStyleNone: UITableViewCellEditingStyle = 0;
+pub const UITableViewCellEditingStyleDelete: UITableViewCellEditingStyle = 1;
+pub const UITableViewCellEditingStyleInsert: UITableViewCellEditingStyle = 2;
+
 /// The default height of a row.
 pub const DEFAULT_ROW_HEIGHT: CGFloat = 44.0;
+
+/// How far the content moves right while editing, to make room for the
+/// delete or insert control. Taps left of this are on the control.
+pub const EDITING_INDENT: CGFloat = 32.0;
+const EDITING_CONTROL_SIZE: CGFloat = 22.0;
+const DELETE_BUTTON_SIZE: CGSize = CGSize {
+    width: 64.0,
+    height: 30.0,
+};
+const DELETE_BUTTON_MARGIN: CGFloat = 8.0;
+
+/// Where the Delete button is, in a cell's co-ordinates.
+pub fn delete_button_rect(bounds: CGRect) -> CGRect {
+    CGRect {
+        origin: CGPoint {
+            x: bounds.size.width - DELETE_BUTTON_SIZE.width - DELETE_BUTTON_MARGIN,
+            y: ((bounds.size.height - DELETE_BUTTON_SIZE.height) / 2.0).round(),
+        },
+        size: DELETE_BUTTON_SIZE,
+    }
+}
 
 pub struct UITableViewCellHostObject {
     superclass: super::UIViewHostObject,
@@ -43,6 +72,13 @@ pub struct UITableViewCellHostObject {
     selection_style: UITableViewCellSelectionStyle,
     selected: bool,
     highlighted: bool,
+    editing: bool,
+    editing_style: UITableViewCellEditingStyle,
+    showing_delete_confirmation: bool,
+    /// The editing control (a circle with bars in it) and the Delete
+    /// button, made when first needed. Strong references.
+    editing_control: id,
+    delete_button: id,
 }
 impl_HostObject_with_superclass!(UITableViewCellHostObject);
 impl Default for UITableViewCellHostObject {
@@ -59,6 +95,11 @@ impl Default for UITableViewCellHostObject {
             selection_style: UITableViewCellSelectionStyleBlue,
             selected: false,
             highlighted: false,
+            editing: false,
+            editing_style: UITableViewCellEditingStyleDelete,
+            showing_delete_confirmation: false,
+            editing_control: nil,
+            delete_button: nil,
         }
     }
 }
@@ -137,8 +178,12 @@ pub const CLASSES: ClassExports = objc_classes! {
         background_view,
         selected_background_view,
         reuse_identifier,
+        editing_control,
+        delete_button,
         ..
     } = env.objc.borrow(this);
+    release(env, editing_control);
+    release(env, delete_button);
     release(env, content_view);
     release(env, text_label);
     release(env, image_view);
@@ -153,6 +198,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 - (())prepareForReuse {
     () = msg![env; this setSelected:false animated:false];
+    () = msg![env; this setHighlighted:false animated:false];
 }
 
 - (id)contentView {
@@ -290,6 +336,45 @@ pub const CLASSES: ClassExports = objc_classes! {
     () = msg![env; this _touchHLE_updateSelection];
 }
 
+- (bool)isEditing {
+    env.objc.borrow::<UITableViewCellHostObject>(this).editing
+}
+- (())setEditing:(bool)editing {
+    () = msg![env; this setEditing:editing animated:false];
+}
+// Changes straight away, even when animated.
+- (())setEditing:(bool)editing animated:(bool)_animated {
+    let host = env.objc.borrow_mut::<UITableViewCellHostObject>(this);
+    if host.editing == editing {
+        return;
+    }
+    host.editing = editing;
+    () = msg![env; this setNeedsLayout];
+}
+- (UITableViewCellEditingStyle)editingStyle {
+    env.objc.borrow::<UITableViewCellHostObject>(this).editing_style
+}
+- (bool)showingDeleteConfirmation {
+    env.objc.borrow::<UITableViewCellHostObject>(this).showing_delete_confirmation
+}
+// The table view decides these.
+- (())_touchHLE_setEditingStyle:(UITableViewCellEditingStyle)style {
+    let host = env.objc.borrow_mut::<UITableViewCellHostObject>(this);
+    if host.editing_style == style {
+        return;
+    }
+    host.editing_style = style;
+    () = msg![env; this setNeedsLayout];
+}
+- (())_touchHLE_setShowingDeleteConfirmation:(bool)showing {
+    let host = env.objc.borrow_mut::<UITableViewCellHostObject>(this);
+    if host.showing_delete_confirmation == showing {
+        return;
+    }
+    host.showing_delete_confirmation = showing;
+    () = msg![env; this setNeedsLayout];
+}
+
 // Shows the selected background and highlighted text while the cell is
 // selected or highlighted.
 - (())_touchHLE_updateSelection {
@@ -320,7 +405,22 @@ pub const CLASSES: ClassExports = objc_classes! {
         () = msg![env; background_view setFrame:bounds];
     }
     () = msg![env; selected_background_view setFrame:bounds];
-    () = msg![env; content_view setFrame:bounds];
+
+    // While editing, the content moves over for the editing control.
+    let editing = env.objc.borrow::<UITableViewCellHostObject>(this).editing;
+    let indent = if editing { EDITING_INDENT } else { 0.0 };
+    let content_frame = CGRect {
+        origin: CGPoint {
+            x: bounds.origin.x + indent,
+            y: bounds.origin.y,
+        },
+        size: CGSize {
+            width: (bounds.size.width - indent).max(0.0),
+            height: bounds.size.height,
+        },
+    };
+    () = msg![env; content_view setFrame:content_frame];
+    layout_editing_views(env, this, bounds);
 
     // The image is at the left, centred vertically, then the text.
     let mut text_x: CGFloat = 10.0;
@@ -342,7 +442,7 @@ pub const CLASSES: ClassExports = objc_classes! {
     let frame = CGRect {
         origin: CGPoint { x: text_x, y: 0.0 },
         size: CGSize {
-            width: (bounds.size.width - text_x - 10.0).max(0.0),
+            width: (content_frame.size.width - text_x - 10.0).max(0.0),
             height: bounds.size.height,
         },
     };
@@ -352,3 +452,132 @@ pub const CLASSES: ClassExports = objc_classes! {
 @end
 
 };
+
+fn color(env: &mut Environment, r: CGFloat, g: CGFloat, b: CGFloat) -> id {
+    msg_class![env; UIColor colorWithRed:r green:g blue:b alpha:(1.0 as CGFloat)]
+}
+
+/// A plain view that taps go through (to the table view).
+fn make_view(env: &mut Environment, frame: CGRect, background: id) -> id {
+    let view: id = msg_class![env; UIView alloc];
+    let view: id = msg![env; view initWithFrame:frame];
+    () = msg![env; view setBackgroundColor:background];
+    () = msg![env; view setUserInteractionEnabled:false];
+    view
+}
+
+/// The editing control: a red circle with a minus to delete (turned upright
+/// while the Delete button shows), or a green one with a plus to insert.
+fn make_editing_control(env: &mut Environment) -> id {
+    let size = EDITING_CONTROL_SIZE;
+    let frame = CGRect {
+        origin: CGPoint { x: 0.0, y: 0.0 },
+        size: CGSize {
+            width: size,
+            height: size,
+        },
+    };
+    let control = make_view(env, frame, nil);
+    let layer: id = msg![env; control layer];
+    () = msg![env; layer setCornerRadius:(size / 2.0)];
+    let white: id = msg_class![env; UIColor whiteColor];
+    let (long, short) = (12.0, 3.0);
+    for (tag, width, height) in [(1, long, short), (2, short, long)] {
+        let bar_frame = CGRect {
+            origin: CGPoint {
+                x: (size - width) / 2.0,
+                y: (size - height) / 2.0,
+            },
+            size: CGSize { width, height },
+        };
+        let bar = make_view(env, bar_frame, white);
+        () = msg![env; bar setTag:(tag as NSInteger)];
+        () = msg![env; control addSubview:bar];
+        release(env, bar);
+    }
+    control
+}
+
+fn make_delete_button(env: &mut Environment) -> id {
+    let red = color(env, 0.86, 0.13, 0.13);
+    let frame = CGRect {
+        origin: CGPoint { x: 0.0, y: 0.0 },
+        size: DELETE_BUTTON_SIZE,
+    };
+    let button = make_view(env, frame, red);
+    let layer: id = msg![env; button layer];
+    () = msg![env; layer setCornerRadius:(6.0 as CGFloat)];
+    let label: id = msg_class![env; UILabel alloc];
+    let label: id = msg![env; label initWithFrame:frame];
+    let title = get_static_str(env, "Delete");
+    () = msg![env; label setText:title];
+    let font: id = msg_class![env; UIFont boldSystemFontOfSize:(15.0 as CGFloat)];
+    () = msg![env; label setFont:font];
+    let white: id = msg_class![env; UIColor whiteColor];
+    () = msg![env; label setTextColor:white];
+    let clear: id = msg_class![env; UIColor clearColor];
+    () = msg![env; label setBackgroundColor:clear];
+    () = msg![env; label setTextAlignment:UITextAlignmentCenter];
+    () = msg![env; button addSubview:label];
+    release(env, label);
+    button
+}
+
+fn layout_editing_views(env: &mut Environment, this: id, bounds: CGRect) {
+    let &UITableViewCellHostObject {
+        editing,
+        editing_style,
+        showing_delete_confirmation,
+        mut editing_control,
+        mut delete_button,
+        ..
+    } = env.objc.borrow(this);
+
+    let show_control = editing && editing_style != UITableViewCellEditingStyleNone;
+    if show_control && editing_control == nil {
+        editing_control = make_editing_control(env);
+        () = msg![env; this addSubview:editing_control];
+        env.objc
+            .borrow_mut::<UITableViewCellHostObject>(this)
+            .editing_control = editing_control;
+    }
+    if editing_control != nil {
+        () = msg![env; editing_control setHidden:(!show_control)];
+        let insert = editing_style == UITableViewCellEditingStyleInsert;
+        let background = if insert {
+            color(env, 0.2, 0.7, 0.2)
+        } else {
+            color(env, 0.86, 0.13, 0.13)
+        };
+        () = msg![env; editing_control setBackgroundColor:background];
+        let horizontal: id = msg![env; editing_control viewWithTag:(1 as NSInteger)];
+        let vertical: id = msg![env; editing_control viewWithTag:(2 as NSInteger)];
+        () = msg![env; horizontal setHidden:(!insert && showing_delete_confirmation)];
+        () = msg![env; vertical setHidden:(!insert && !showing_delete_confirmation)];
+        let frame = CGRect {
+            origin: CGPoint {
+                x: ((EDITING_INDENT - EDITING_CONTROL_SIZE) / 2.0).round(),
+                y: ((bounds.size.height - EDITING_CONTROL_SIZE) / 2.0).round(),
+            },
+            size: CGSize {
+                width: EDITING_CONTROL_SIZE,
+                height: EDITING_CONTROL_SIZE,
+            },
+        };
+        () = msg![env; editing_control setFrame:frame];
+        () = msg![env; this bringSubviewToFront:editing_control];
+    }
+
+    if showing_delete_confirmation && delete_button == nil {
+        delete_button = make_delete_button(env);
+        () = msg![env; this addSubview:delete_button];
+        env.objc
+            .borrow_mut::<UITableViewCellHostObject>(this)
+            .delete_button = delete_button;
+    }
+    if delete_button != nil {
+        () = msg![env; delete_button setHidden:(!showing_delete_confirmation)];
+        () = msg![env; delete_button setFrame:(delete_button_rect(bounds))];
+        () = msg![env; this bringSubviewToFront:delete_button];
+    }
+}
