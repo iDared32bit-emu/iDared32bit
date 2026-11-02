@@ -317,6 +317,20 @@ forControlEvents:(UIControlEvents)events {
     env.objc.borrow_mut::<UIControlHostObject>(this).action_targets.push((target, action, events));
 }
 
+// A nil target or NULL action matches any. The events are taken off the
+// matching pairs; pairs left with no events are removed.
+- (())removeTarget:(id)target
+            action:(SEL)action
+  forControlEvents:(UIControlEvents)events {
+    let action_targets = &mut env.objc.borrow_mut::<UIControlHostObject>(this).action_targets;
+    for (t, a, e) in action_targets.iter_mut() {
+        if (target == nil || *t == target) && (action.is_null() || *a == action) {
+            *e &= !events;
+        }
+    }
+    action_targets.retain(|&(_, _, e)| e != 0);
+}
+
 - (())sendAction:(SEL)action
               to:(id)target
         forEvent:(id)event { // UIEvent*
