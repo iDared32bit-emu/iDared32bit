@@ -205,7 +205,7 @@ const unescaped_url_chars: &str =
 static UNESCAPED_URL_CHARS: LazyLock<HashSet<char>> =
     LazyLock::new(|| HashSet::from_iter(unescaped_url_chars.chars()));
 
-fn CFURLCreateStringByAddingPercentEscapes(
+pub fn CFURLCreateStringByAddingPercentEscapes(
     env: &mut Environment,
     allocator: CFAllocatorRef,
     original_string: CFStringRef,

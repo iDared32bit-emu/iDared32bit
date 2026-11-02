@@ -17,6 +17,9 @@ use super::{
     NSOrderedSame, NSRange, NSUInteger,
 };
 use crate::abi::VaList;
+use crate::frameworks::core_foundation::cf_allocator::kCFAllocatorDefault;
+use crate::frameworks::core_foundation::cf_string::kCFStringEncodingUTF8;
+use crate::frameworks::core_foundation::cf_url::CFURLCreateStringByAddingPercentEscapes;
 use crate::frameworks::core_graphics::{CGFloat, CGPoint, CGRect, CGSize};
 use crate::frameworks::foundation::_nib_archive_decoder;
 use crate::frameworks::uikit::ui_font::{
@@ -1106,14 +1109,15 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 - (id)stringByAddingPercentEscapesUsingEncoding:(NSStringEncoding)encoding {
     assert!(encoding == NSASCIIStringEncoding || encoding == NSUTF8StringEncoding); // TODO: other encodings
-    // TODO: implement escaping as per RFC 2396
-    let str = to_rust_string(env, this);
-    // FIXME: figure out why '[' and ']' are escaped on iOS simulator
-    assert!(str.as_bytes().iter().all(|byte| {
-        (byte.is_ascii_alphanumeric() || b"-_.~".contains(byte)) // unreserved
-        || b"!*'();:@&=+$,/?%#".contains(byte) // reserved
-    }));
-    let new: id = msg![env; this copy];
+    // Like the CF function with no extra characters to escape or not.
+    let new = CFURLCreateStringByAddingPercentEscapes(
+        env,
+        kCFAllocatorDefault,
+        this,
+        nil,
+        nil,
+        kCFStringEncodingUTF8,
+    );
     autorelease(env, new)
 }
 
