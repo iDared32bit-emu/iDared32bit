@@ -429,6 +429,15 @@ pub fn decode_current_data(env: &mut Environment, unarchiver: id, is_mutable: bo
 /// Shortcut for use by `[NSString initWithCoder:]`.
 /// TODO: mutability
 pub fn decode_current_string(env: &mut Environment, unarchiver: id) -> id {
+    // Mutable strings are archived as a string, rather than as bytes.
+    let key = get_static_str(env, "NS.string");
+    let string = get_value_to_decode_for_key(env, unarchiver, key)
+        .and_then(|value| value.as_string())
+        .map(|string| string.to_string());
+    if let Some(string) = string {
+        return from_rust_string(env, string);
+    }
+
     let key = get_static_str(env, "NS.bytes");
     // TODO: avoid copying (twice!)
     let bytes = get_value_to_decode_for_key(env, unarchiver, key)

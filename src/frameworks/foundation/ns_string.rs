@@ -1687,6 +1687,16 @@ pub const CLASSES: ClassExports = objc_classes! {
     msg![env; this init]
 }
 
+// NSCoding implementation
+- (id)initWithCoder:(id)coder {
+    let string: id = msg_class![env; _touchHLE_NSString alloc];
+    let string: id = msg![env; string initWithCoder:coder];
+    let mutable: id = msg![env; string mutableCopy];
+    release(env, string);
+    release(env, this);
+    mutable
+}
+
 - (id)initWithBytes:(ConstPtr<u8>)bytes
              length:(NSUInteger)len
            encoding:(NSStringEncoding)encoding {
