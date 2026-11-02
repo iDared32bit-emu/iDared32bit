@@ -217,7 +217,7 @@ fn CFURLCreateStringByAddingPercentEscapes(
         let mut buf = [0; 4];
         c.encode_utf8(&mut buf);
         for b in buf.iter().take(c.len_utf8()) {
-            let _ = write!(string, "%{:02x}", b);
+            let _ = write!(string, "%{:02X}", b);
         }
     }
     // This has (kinda) weird semantics if a character is specified to be both
