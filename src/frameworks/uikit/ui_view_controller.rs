@@ -16,6 +16,9 @@ use crate::frameworks::foundation::{NSInteger, NSUInteger};
 use crate::frameworks::uikit::ui_application::{
     UIInterfaceOrientation, UIInterfaceOrientationPortrait,
 };
+use crate::frameworks::uikit::ui_bar_item::ui_bar_button_item::{
+    UIBarButtonItemStyleBordered, UIBarButtonItemStyleDone,
+};
 use crate::frameworks::uikit::ui_view::set_view_controller;
 use crate::objc::{
     autorelease, id, msg, msg_class, nil, objc_classes, release, retain, todo_objc_setter, Class,
@@ -45,6 +48,9 @@ struct UIViewControllerHostObject {
     /// The window's root view, hidden (removed) while a modal view controller
     /// covers it, and its index in the window. Retained.
     covered_view: Option<(id, NSUInteger)>,
+    editing: bool,
+    /// Made when first asked for. Retained.
+    edit_button_item: id,
 }
 impl HostObject for UIViewControllerHostObject {}
 
@@ -90,9 +96,11 @@ pub const CLASSES: ClassExports = objc_classes! {
         nib_name,
         bundle,
         modal_view_controller,
+        edit_button_item,
         ..
     } = env.objc.borrow(this);
     release(env, modal_view_controller);
+    release(env, edit_button_item);
 
     if view != nil {
         set_view_controller(env, view, nil);
@@ -193,8 +201,51 @@ pub const CLASSES: ClassExports = objc_classes! {
 - (())setTitle:(id)title { // NSString *
     todo_objc_setter!(this, to_rust_string(env, title));
 }
+- (bool)isEditing {
+    env.objc.borrow::<UIViewControllerHostObject>(this).editing
+}
 - (())setEditing:(bool)editing {
-    todo_objc_setter!(this, editing);
+    () = msg![env; this setEditing:editing animated:false];
+}
+// Subclasses (like a table view controller) also change their views.
+- (())setEditing:(bool)editing animated:(bool)_animated {
+    env.objc.borrow_mut::<UIViewControllerHostObject>(this).editing = editing;
+    let item = env.objc.borrow::<UIViewControllerHostObject>(this).edit_button_item;
+    if item != nil {
+        let (title, style) = if editing {
+            ("Done", UIBarButtonItemStyleDone)
+        } else {
+            ("Edit", UIBarButtonItemStyleBordered)
+        };
+        let title = get_static_str(env, title);
+        () = msg![env; item setTitle:title];
+        () = msg![env; item setStyle:style];
+    }
+}
+// A button that switches between Edit and Done, toggling editing.
+- (id)editButtonItem {
+    let item = env.objc.borrow::<UIViewControllerHostObject>(this).edit_button_item;
+    if item != nil {
+        return item;
+    }
+    let editing = env.objc.borrow::<UIViewControllerHostObject>(this).editing;
+    let (title, style) = if editing {
+        ("Done", UIBarButtonItemStyleDone)
+    } else {
+        ("Edit", UIBarButtonItemStyleBordered)
+    };
+    let title = get_static_str(env, title);
+    let action = env
+        .objc
+        .register_host_selector("_touchHLE_toggleEditing".to_string(), &mut env.mem);
+    let item: id = msg_class![env; UIBarButtonItem alloc];
+    let item: id = msg![env; item initWithTitle:title style:style target:this action:action];
+    env.objc.borrow_mut::<UIViewControllerHostObject>(this).edit_button_item = item;
+    item
+}
+- (())_touchHLE_toggleEditing {
+    let editing: bool = msg![env; this isEditing];
+    () = msg![env; this setEditing:(!editing) animated:true];
 }
 - (())setWantsFullScreenLayout:(bool)wants {
     todo_objc_setter!(this, wants);
