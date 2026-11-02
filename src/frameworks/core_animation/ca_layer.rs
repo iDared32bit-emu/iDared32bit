@@ -77,6 +77,78 @@ pub(super) struct CALayerHostObject {
     /// Presentation layer only: a fade transition and how far it's gone (0
     /// to 1), for the compositor.
     pub(super) fade_transition: Option<(id, f32)>,
+    /// Where `contents` goes in the bounds.
+    pub(super) contents_gravity: ContentsGravity,
+}
+
+/// Where a layer's `contents` go in its bounds. This is set from a view's
+/// `contentMode`, so `Top` and so on mean the top as seen on screen.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ContentsGravity {
+    Resize,
+    ResizeAspect,
+    ResizeAspectFill,
+    Center,
+    Top,
+    Bottom,
+    Left,
+    Right,
+    TopLeft,
+    TopRight,
+    BottomLeft,
+    BottomRight,
+}
+
+impl ContentsGravity {
+    /// Where contents of `size` go in `bounds`. They aren't clipped.
+    pub(super) fn rect(self, bounds: CGRect, size: CGSize) -> CGRect {
+        use ContentsGravity::*;
+        let size = match self {
+            Resize => return bounds,
+            ResizeAspect | ResizeAspectFill => {
+                let (sx, sy) = (
+                    bounds.size.width / size.width,
+                    bounds.size.height / size.height,
+                );
+                let scale = if self == ResizeAspect {
+                    sx.min(sy)
+                } else {
+                    sx.max(sy)
+                };
+                CGSize {
+                    width: size.width * scale,
+                    height: size.height * scale,
+                }
+            }
+            _ => size,
+        };
+        // How far across and down: 0 is left or top, 1 is right or bottom.
+        let (fx, fy) = match self {
+            Top => (0.5, 0.0),
+            Bottom => (0.5, 1.0),
+            Left => (0.0, 0.5),
+            Right => (1.0, 0.5),
+            TopLeft => (0.0, 0.0),
+            TopRight => (1.0, 0.0),
+            BottomLeft => (0.0, 1.0),
+            BottomRight => (1.0, 1.0),
+            _ => (0.5, 0.5),
+        };
+        CGRect {
+            origin: CGPoint {
+                x: bounds.origin.x + ((bounds.size.width - size.width) * fx).round(),
+                y: bounds.origin.y + ((bounds.size.height - size.height) * fy).round(),
+            },
+            size,
+        }
+    }
+}
+
+/// For `UIView`'s `contentMode`.
+pub fn set_contents_gravity(env: &mut Environment, layer: id, gravity: ContentsGravity) {
+    env.objc
+        .borrow_mut::<CALayerHostObject>(layer)
+        .contents_gravity = gravity;
 }
 impl HostObject for CALayerHostObject {}
 
@@ -156,6 +228,7 @@ pub const CLASSES: ClassExports = objc_classes! {
         animations: HashMap::new(),
         anonymous_animations: HashSet::new(),
         fade_transition: None,
+        contents_gravity: ContentsGravity::Resize,
     });
     env.objc.alloc_object(this, host_object, &mut env.mem)
 }

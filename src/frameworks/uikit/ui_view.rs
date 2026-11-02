@@ -27,6 +27,7 @@ use super::ui_graphics::{UIGraphicsPopContext, UIGraphicsPushContext};
 use crate::frameworks::core_animation::ca_animation::{
     kCAFillModeBackwards, CAMediaTimingFillMode,
 };
+use crate::frameworks::core_animation::ca_layer::{set_contents_gravity, ContentsGravity};
 use crate::frameworks::core_animation::ca_media_timing_function::{
     kCAMediaTimingFunctionEaseIn, kCAMediaTimingFunctionEaseInEaseOut,
     kCAMediaTimingFunctionEaseOut, kCAMediaTimingFunctionLinear,
@@ -96,6 +97,7 @@ pub struct UIViewHostObject {
     needs_layout: bool,
     autoresizing_mask: UIViewAutoresizing,
     autoresizes_subviews: bool,
+    content_mode: UIViewContentMode,
 }
 impl HostObject for UIViewHostObject {}
 
@@ -107,6 +109,29 @@ const UIViewAutoresizingFlexibleRightMargin: UIViewAutoresizing = 1 << 2;
 const UIViewAutoresizingFlexibleTopMargin: UIViewAutoresizing = 1 << 3;
 const UIViewAutoresizingFlexibleHeight: UIViewAutoresizing = 1 << 4;
 const UIViewAutoresizingFlexibleBottomMargin: UIViewAutoresizing = 1 << 5;
+
+type UIViewContentMode = NSInteger;
+const UIViewContentModeScaleToFill: UIViewContentMode = 0;
+const UIViewContentModeRedraw: UIViewContentMode = 3;
+
+/// How a content mode places a layer's contents.
+fn contents_gravity(mode: UIViewContentMode) -> ContentsGravity {
+    match mode {
+        1 => ContentsGravity::ResizeAspect,
+        2 => ContentsGravity::ResizeAspectFill,
+        4 => ContentsGravity::Center,
+        5 => ContentsGravity::Top,
+        6 => ContentsGravity::Bottom,
+        7 => ContentsGravity::Left,
+        8 => ContentsGravity::Right,
+        9 => ContentsGravity::TopLeft,
+        10 => ContentsGravity::TopRight,
+        11 => ContentsGravity::BottomLeft,
+        12 => ContentsGravity::BottomRight,
+        // Scale to fill and redraw.
+        _ => ContentsGravity::Resize,
+    }
+}
 
 impl Default for UIViewHostObject {
     fn default() -> UIViewHostObject {
@@ -124,6 +149,7 @@ impl Default for UIViewHostObject {
             needs_layout: true,
             autoresizing_mask: UIViewAutoresizingNone,
             autoresizes_subviews: true,
+            content_mode: UIViewContentModeScaleToFill,
         }
     }
 }
@@ -443,6 +469,9 @@ pub const CLASSES: ClassExports = objc_classes! {
     let key_ns_string = get_static_str(env, "UIUserInteractionDisabled");
     let user_interaction_disabled: bool = msg![env; coder decodeBoolForKey:key_ns_string];
 
+    let key_ns_string = get_static_str(env, "UIContentMode");
+    let content_mode: NSInteger = msg![env; coder decodeIntegerForKey:key_ns_string];
+
     let key_ns_string = get_static_str(env, "UIAutoresizingMask");
     let autoresizing_mask: NSInteger = msg![env; coder decodeIntegerForKey:key_ns_string];
     let autoresizing_mask = autoresizing_mask as UIViewAutoresizing;
@@ -479,6 +508,7 @@ pub const CLASSES: ClassExports = objc_classes! {
     () = msg![env; this setMultipleTouchEnabled:multi_touch_enabled];
     () = msg![env; this setUserInteractionEnabled:(!user_interaction_disabled)];
     () = msg![env; this setAutoresizingMask:autoresizing_mask];
+    () = msg![env; this setContentMode:content_mode];
     () = msg![env; this setAutoresizesSubviews:autoresizes_subviews];
 
     for i in 0..subview_count {
@@ -754,6 +784,7 @@ pub const CLASSES: ClassExports = objc_classes! {
         needs_layout: _,
         autoresizing_mask: _,
         autoresizes_subviews: _,
+        content_mode: _,
     } = std::mem::take(env.objc.borrow_mut(this));
 
     release(env, layer);
@@ -895,8 +926,15 @@ pub const CLASSES: ClassExports = objc_classes! {
     msg![env; layer setAffineTransform:transform]
 }
 
-- (())setContentMode:(NSInteger)content_mode { // should be UIViewContentMode
-    todo_objc_setter!(this, content_mode);
+- (UIViewContentMode)contentMode {
+    env.objc.borrow::<UIViewHostObject>(this).content_mode
+}
+- (())setContentMode:(UIViewContentMode)content_mode {
+    env.objc.borrow_mut::<UIViewHostObject>(this).content_mode = content_mode;
+    let layer = env.objc.borrow::<UIViewHostObject>(this).layer;
+    set_contents_gravity(env, layer, contents_gravity(content_mode));
+    let redraw = content_mode == UIViewContentModeRedraw;
+    () = msg![env; layer setNeedsDisplayOnBoundsChange:redraw];
 }
 
 - (bool)clearsContextBeforeDrawing {

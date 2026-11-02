@@ -11,10 +11,10 @@
 #![allow(clippy::zero_ptr)] // alas, as you know, opengl
 
 use super::ca_eagl_layer::find_fullscreen_eagl_layer;
-use super::ca_layer::CALayerHostObject;
+use super::ca_layer::{CALayerHostObject, ContentsGravity};
 use crate::frameworks::core_animation::animation;
 use crate::frameworks::core_graphics::cg_color::CGColorHostObject;
-use crate::frameworks::core_graphics::{cg_bitmap_context, cg_image, CGFloat, CGRect};
+use crate::frameworks::core_graphics::{cg_bitmap_context, cg_image, CGFloat, CGRect, CGSize};
 use crate::gles::gles11_raw as gles11; // constants only
 use crate::gles::gles11_raw::types::*;
 use crate::gles::present::{present_frame, FpsCounter, TextureCoordinates};
@@ -810,6 +810,26 @@ unsafe fn composite_layer_recursive(
 
         gles.TexCoordPointer(2, gles11::FLOAT, 0, tex_coords.as_ptr() as *const GLvoid);
         gles.Enable(gles11::TEXTURE_2D);
+
+        // An image only fills the bounds if its gravity says so.
+        let gravity = host_obj.contents_gravity;
+        if host_obj.contents != nil && gravity != ContentsGravity::Resize {
+            let image = cg_image::borrow_image(&env.objc, host_obj.contents);
+            let (w, h) = image.dimensions();
+            let size = CGSize {
+                width: w as CGFloat,
+                height: h as CGFloat,
+            };
+            let rect = gravity.rect(host_obj.bounds, size);
+            gles.MatrixMode(gles11::MODELVIEW);
+            load_matrix(
+                gles.as_mut(),
+                Matrix::<4>::from(&Matrix::scale_2d(rect.size.width, rect.size.height))
+                    .multiply(&Matrix::translate_3d(rect.origin.x, rect.origin.y, 0.0))
+                    .multiply(&cumulative_transform),
+            );
+        }
+
         gles.DrawElements(
             gles11::TRIANGLES,
             SQUARE_INDICES.len() as _,
