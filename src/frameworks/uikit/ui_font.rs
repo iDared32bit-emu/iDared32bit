@@ -81,7 +81,6 @@ impl HostObject for UIFontHostObject {}
 pub type UILineBreakMode = NSInteger;
 pub const UILineBreakModeWordWrap: UILineBreakMode = 0;
 pub const UILineBreakModeCharacterWrap: UILineBreakMode = 1;
-#[allow(dead_code)]
 pub const UILineBreakModeClip: UILineBreakMode = 2;
 #[allow(dead_code)]
 pub const UILineBreakModeHeadTruncation: UILineBreakMode = 3;
@@ -232,6 +231,8 @@ fn convert_line_break_mode(ui_mode: UILineBreakMode) -> WrapMode {
     match ui_mode {
         UILineBreakModeWordWrap => WrapMode::Word,
         UILineBreakModeCharacterWrap => WrapMode::Char,
+        // Wraps like word wrap; drawing clips what's past the rect's edge.
+        UILineBreakModeClip => WrapMode::Word,
         // TODO: support this properly; fake support is so that UILabel works,
         // which has this as its default line break mode
         UILineBreakModeTailTruncation => WrapMode::Word,
