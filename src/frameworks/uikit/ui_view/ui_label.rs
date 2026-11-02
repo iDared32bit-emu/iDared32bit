@@ -35,6 +35,9 @@ pub struct UILabelHostObject {
     number_of_lines: NSInteger,
     adjusts_font_size_to_fit_width: bool,
     minimum_font_size: CGFloat,
+    /// `UIColor*`, used instead of `text_color` while highlighted.
+    highlighted_text_color: id,
+    highlighted: bool,
 }
 impl_HostObject_with_superclass!(UILabelHostObject);
 impl Default for UILabelHostObject {
@@ -49,6 +52,8 @@ impl Default for UILabelHostObject {
             number_of_lines: 1,
             adjusts_font_size_to_fit_width: false,
             minimum_font_size: 0.0,
+            highlighted_text_color: nil,
+            highlighted: false,
         }
     }
 }
@@ -131,10 +136,13 @@ pub const CLASSES: ClassExports = objc_classes! {
         number_of_lines: _,
         adjusts_font_size_to_fit_width: _,
         minimum_font_size: _,
+        highlighted_text_color,
+        highlighted: _,
     } = env.objc.borrow(this);
     release(env, text);
     release(env, font);
     release(env, text_color);
+    release(env, highlighted_text_color);
     msg_super![env; this dealloc]
 }
 
@@ -201,6 +209,24 @@ pub const CLASSES: ClassExports = objc_classes! {
     retain(env, new_font);
     release(env, old_font);
 
+    () = msg![env; this setNeedsDisplay];
+}
+
+- (id)highlightedTextColor {
+    env.objc.borrow::<UILabelHostObject>(this).highlighted_text_color
+}
+- (())setHighlightedTextColor:(id)color { // UIColor*
+    retain(env, color);
+    let host = env.objc.borrow_mut::<UILabelHostObject>(this);
+    let old = std::mem::replace(&mut host.highlighted_text_color, color);
+    release(env, old);
+    () = msg![env; this setNeedsDisplay];
+}
+- (bool)isHighlighted {
+    env.objc.borrow::<UILabelHostObject>(this).highlighted
+}
+- (())setHighlighted:(bool)highlighted {
+    env.objc.borrow_mut::<UILabelHostObject>(this).highlighted = highlighted;
     () = msg![env; this setNeedsDisplay];
 }
 
@@ -307,8 +333,15 @@ pub const CLASSES: ClassExports = objc_classes! {
         number_of_lines,
         adjusts_font_size_to_fit_width,
         minimum_font_size,
+        highlighted_text_color,
+        highlighted,
     } = env.objc.borrow_mut(this);
 
+    let text_color = if highlighted && highlighted_text_color != nil {
+        highlighted_text_color
+    } else {
+        text_color
+    };
     let (r, g, b, a) = ui_color::get_rgba(&env.objc, text_color);
     CGContextSetRGBFillColor(env, context, r, g, b, a);
 
