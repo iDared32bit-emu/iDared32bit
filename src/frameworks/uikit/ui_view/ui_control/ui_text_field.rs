@@ -136,16 +136,6 @@ pub const CLASSES: ClassExports = objc_classes! {
 - (())setText:(id)text { // NSString*
     let text_label = env.objc.borrow_mut::<UITextFieldHostObject>(this).text_label;
     () = msg![env; text_label setText:text];
-
-    // This will work only if all the text changes will call setText:!
-    // This is the case right now.
-    // (see `handle_text` and `handle_backspace` helper functions below)
-    // TODO: actually check if setText: send this notif on each change
-    // (e.g. does it send the notif if text hasn't changed)
-    let center: id = msg_class![env; NSNotificationCenter defaultCenter];
-    let name = ns_string::get_static_str(env, UITextFieldTextDidChangeNotification);
-    // TODO: userInfo
-    let _: () = msg![env; center postNotificationName:name object:this userInfo:nil];
 }
 
 - (())setTextColor:(id)color { // UIColor*
@@ -375,7 +365,7 @@ pub fn handle_text(env: &mut Environment, text_field: id, text: String) {
         () = msg![env; text_label setText:new_text];
         () = msg![env; text_field setNeedsDisplay];
         release(env, new_text);
-        send_actions(env, text_field, nil, UIControlEventEditingChanged);
+        text_did_change(env, text_field);
     }
     release(env, txt);
 }
@@ -420,8 +410,17 @@ pub fn handle_backspace(env: &mut Environment, text_field: id) {
         // TODO: refactor this to proper update() method
         () = msg![env; text_label setText:new_text];
         () = msg![env; text_field setNeedsDisplay];
-        send_actions(env, text_field, nil, UIControlEventEditingChanged);
+        text_did_change(env, text_field);
     }
+}
+
+/// Like on iOS, only edits by the user (not setText:) notify.
+fn text_did_change(env: &mut Environment, text_field: id) {
+    send_actions(env, text_field, nil, UIControlEventEditingChanged);
+    let center: id = msg_class![env; NSNotificationCenter defaultCenter];
+    let name = ns_string::get_static_str(env, UITextFieldTextDidChangeNotification);
+    // TODO: userInfo
+    let _: () = msg![env; center postNotificationName:name object:text_field userInfo:nil];
 }
 
 pub fn handle_return(env: &mut Environment, text_field: id) {
