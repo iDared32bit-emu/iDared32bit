@@ -29,6 +29,7 @@ pub const UIBarButtonSystemItemFixedSpace: UIBarButtonSystemItem = 6;
 pub struct UIBarButtonItemHostObject {
     superclass: UIBarItemHostObject,
     pub style: UIBarButtonItemStyle,
+    /// Weak reference.
     pub target: id,
     pub action: Option<SEL>,
     pub system_item: Option<UIBarButtonSystemItem>,
@@ -161,9 +162,6 @@ pub const CLASSES: ClassExports = objc_classes! {
     if title != nil {
         retain(env, title);
     }
-    if target != nil {
-        retain(env, target);
-    }
     retain(env, custom_view);
 
     msg_super![env; this init]
@@ -215,9 +213,6 @@ pub const CLASSES: ClassExports = objc_classes! {
     if title != nil {
         retain(env, title);
     }
-    if target != nil {
-        retain(env, target);
-    }
     retain(env, custom_view);
 
     msg_super![env; this init]
@@ -264,14 +259,9 @@ pub const CLASSES: ClassExports = objc_classes! {
     env.objc.borrow::<UIBarButtonItemHostObject>(this).target
 }
 
+// Like a control's, the target isn't retained.
 - (())setTarget:(id)target {
-    // Retained, as by the initializers.
-    retain(env, target);
-    let old = std::mem::replace(
-        &mut env.objc.borrow_mut::<UIBarButtonItemHostObject>(this).target,
-        target,
-    );
-    release(env, old);
+    env.objc.borrow_mut::<UIBarButtonItemHostObject>(this).target = target;
 }
 
 - (())_touchHLE_sendAction {
@@ -375,7 +365,6 @@ pub const CLASSES: ClassExports = objc_classes! {
     );
 
     release(env, superclass.title);
-    release(env, target);
     release(env, custom_view);
     msg_super![env; this dealloc]
 }
