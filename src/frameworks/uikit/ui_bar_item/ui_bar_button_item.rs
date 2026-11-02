@@ -327,7 +327,9 @@ pub const CLASSES: ClassExports = objc_classes! {
             height: size.height,
         }
     } else if custom_view != nil {
-        msg![env; custom_view sizeThatFits:size]
+        // Custom views keep their own size.
+        let bounds: CGRect = msg![env; custom_view bounds];
+        bounds.size
     } else {
         CGSize { width: 0.0, height: size.height }
     }

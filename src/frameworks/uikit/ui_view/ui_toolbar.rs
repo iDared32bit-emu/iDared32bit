@@ -631,8 +631,14 @@ pub const CLASSES: ClassExports = objc_classes! {
         let label: id = msg![env; item label];
         let item_style = env.objc.borrow::<UIBarButtonItemHostObject>(item).style;
         let bordered = label != nil && item_style != UIBarButtonItemStylePlain;
+        let system_item = env.objc.borrow::<UIBarButtonItemHostObject>(item).system_item;
         let (y, h) = if bordered {
             ((bounds.size.height - BUTTON_HEIGHT) / 2.0, BUTTON_HEIGHT)
+        } else if label == nil && system_item.is_none() {
+            // An app's custom view keeps its height, centred.
+            let view_bounds: CGRect = msg![env; (item_views[i]) bounds];
+            let h = view_bounds.size.height;
+            (((bounds.size.height - h) / 2.0).round(), h)
         } else {
             (y, h)
         };
