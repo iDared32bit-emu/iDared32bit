@@ -19,6 +19,7 @@ Compatibility:
 - Fixed stretched images in some games.
 - Fixed missing text in some games.
 - Scrolling lists no longer draw outside their area.
+- Fixed crashes in some games when saving or opening files.
 - Fixed missing toolbar buttons in some games.
 - Views now resize their contents like on a device, fixing missing buttons in some games.
 - Fixed crashes in some games when showing or closing a dialog.
