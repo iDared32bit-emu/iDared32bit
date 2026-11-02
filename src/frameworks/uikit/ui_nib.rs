@@ -393,13 +393,14 @@ fn load_nib_file(env: &mut Environment, ui_nib: id, path: GuestPathBuf) -> Resul
         () = msg![env; next awakeFromNib];
     }
 
-    // Make visible windows visible
+    // "Visible at Launch" windows are also made key, so games that never
+    // call makeKeyAndVisible still have a keyWindow.
     let visibles_key = get_static_str(env, "UINibVisibleWindowsKey");
     let visibles: id = msg![env; unarchiver decodeObjectForKey:visibles_key];
     let visibles_count: NSUInteger = msg![env; visibles count];
     for i in 0..visibles_count {
         let visible: id = msg![env; visibles objectAtIndex:i];
-        () = msg![env; visible setHidden:false];
+        () = msg![env; visible makeKeyAndVisible];
     }
 
     Ok(unarchiver)
