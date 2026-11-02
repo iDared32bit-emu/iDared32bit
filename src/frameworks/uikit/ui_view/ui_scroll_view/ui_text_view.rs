@@ -8,8 +8,8 @@
 use crate::frameworks::core_graphics::cg_context::CGContextSetRGBFillColor;
 use crate::frameworks::core_graphics::cg_geometry::CGPointZero;
 use crate::frameworks::core_graphics::{CGFloat, CGPoint, CGRect, CGSize};
-use crate::frameworks::foundation::ns_string::to_rust_string;
-use crate::frameworks::foundation::{NSRange, NSUInteger};
+use crate::frameworks::foundation::ns_string::{get_static_str, to_rust_string};
+use crate::frameworks::foundation::{NSInteger, NSRange, NSUInteger};
 use crate::frameworks::uikit::ui_color;
 use crate::frameworks::uikit::ui_font::{
     break_lines_with_font, UILineBreakModeTailTruncation, UILineBreakModeWordWrap, UITextAlignment,
@@ -18,8 +18,8 @@ use crate::frameworks::uikit::ui_font::{
 use crate::frameworks::uikit::ui_graphics::UIGraphicsGetCurrentContext;
 use crate::frameworks::uikit::ui_view::ui_control::ui_text_field::UIReturnKeyType;
 use crate::objc::{
-    id, impl_HostObject_with_superclass, msg, msg_class, msg_super, nil, objc_classes, release,
-    retain, todo_objc_setter, ClassExports, NSZonePtr,
+    id, impl_HostObject_with_superclass, msg, msg_class, msg_send, msg_super, nil, objc_classes,
+    release, retain, todo_objc_setter, ClassExports, NSZonePtr,
 };
 use crate::Environment;
 
@@ -58,8 +58,13 @@ fn update_scroll(env: &mut Environment, this: id) {
     let font: id = msg![env; this font];
     let text: id = msg![env; this text];
 
-    // Calculate our new contentSize
-    let calculated_size: CGSize = msg![env; text sizeWithFont:font constrainedToSize:bound_size];
+    // Calculate our new contentSize: as wide as the view, as tall as the
+    // text needs, so long text can scroll.
+    let max_size = CGSize {
+        width: bound_size.width,
+        height: CGFloat::MAX,
+    };
+    let calculated_size: CGSize = msg![env; text sizeWithFont:font constrainedToSize:max_size];
     () = msg![env; this setContentSize:calculated_size];
 
     // Reset contentOffset if we have now gone out of bounds of contentSize,
@@ -93,9 +98,28 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 - (id)initWithCoder:(id)coder {
     let this: id = msg_super![env; this initWithCoder:coder];
-    // These aren't redundant, the setters fetch the real defaults.
-    () = msg![env; this setFont:nil];
-    () = msg![env; this setTextColor:nil];
+    // A missing font or colour gets the default from the setter.
+    for (key, setter) in [
+        ("UIFont", "setFont:"),
+        ("UITextColor", "setTextColor:"),
+        ("UIText", "setText:"),
+    ] {
+        let key = get_static_str(env, key);
+        let value: id = msg![env; coder decodeObjectForKey:key];
+        let sel = env.objc.register_host_selector(setter.to_string(), &mut env.mem);
+        () = msg_send(env, (this, sel, value));
+    }
+    let key = get_static_str(env, "UITextAlignment");
+    let alignment: NSInteger = msg![env; coder decodeIntegerForKey:key];
+    () = msg![env; this setTextAlignment:alignment];
+    let key = get_static_str(env, "UIEditable");
+    // Text views are editable unless the nib says otherwise.
+    let editable: bool = if msg![env; coder containsValueForKey:key] {
+        msg![env; coder decodeBoolForKey:key]
+    } else {
+        true
+    };
+    () = msg![env; this setEditable:editable];
     this
 }
 
