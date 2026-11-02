@@ -135,6 +135,13 @@ pub const CLASSES: ClassExports = objc_classes! {
 - (NSInteger)cancelButtonIndex {
     env.objc.borrow::<UIAlertViewHostObject>(this).cancel_button_index
 }
+// The first button that isn't the cancel button, or -1 if there's none.
+- (NSInteger)firstOtherButtonIndex {
+    let host = env.objc.borrow::<UIAlertViewHostObject>(this);
+    (0..host.button_titles.len() as NSInteger)
+        .find(|&i| i != host.cancel_button_index)
+        .unwrap_or(-1)
+}
 - (())setCancelButtonIndex:(NSInteger)index {
     env.objc.borrow_mut::<UIAlertViewHostObject>(this).cancel_button_index = index;
 }
