@@ -1121,6 +1121,39 @@ pub const CLASSES: ClassExports = objc_classes! {
     autorelease(env, new)
 }
 
+// Each %XX becomes that byte. Gives nil for a malformed escape or bytes that
+// aren't valid in the encoding.
+- (id)stringByReplacingPercentEscapesUsingEncoding:(NSStringEncoding)encoding {
+    assert!(encoding == NSASCIIStringEncoding || encoding == NSUTF8StringEncoding); // TODO: other encodings
+    let string = to_rust_string(env, this);
+    let mut bytes = Vec::with_capacity(string.len());
+    let mut rest = string.as_bytes();
+    while let Some((&byte, after)) = rest.split_first() {
+        rest = after;
+        if byte != b'%' {
+            bytes.push(byte);
+            continue;
+        }
+        let hex = rest
+            .get(..2)
+            .filter(|hex| hex.iter().all(u8::is_ascii_hexdigit))
+            .and_then(|hex| std::str::from_utf8(hex).ok());
+        let Some(byte) = hex.and_then(|hex| u8::from_str_radix(hex, 16).ok()) else {
+            return nil;
+        };
+        bytes.push(byte);
+        rest = &rest[2..];
+    }
+    let Ok(decoded) = String::from_utf8(bytes) else {
+        return nil;
+    };
+    if encoding == NSASCIIStringEncoding && !decoded.is_ascii() {
+        return nil;
+    }
+    let new = from_rust_string(env, decoded);
+    autorelease(env, new)
+}
+
 - (id)stringByAppendingPathComponent:(id)component { // NSString*
     // TODO: avoid copying
     let base_str = to_rust_string(env, this);
