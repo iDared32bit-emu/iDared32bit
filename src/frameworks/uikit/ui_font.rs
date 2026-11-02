@@ -9,9 +9,9 @@ use super::ui_graphics::UIGraphicsGetCurrentContext;
 use crate::font::{Font, TextAlignment, WrapMode};
 use crate::frameworks::core_graphics::cg_bitmap_context::CGBitmapContextDrawer;
 use crate::frameworks::core_graphics::{CGFloat, CGPoint, CGRect, CGSize};
-use crate::frameworks::foundation::ns_string::to_rust_string;
+use crate::frameworks::foundation::ns_string::{get_static_str, to_rust_string};
 use crate::frameworks::foundation::NSInteger;
-use crate::objc::{autorelease, id, msg, objc_classes, ClassExports, HostObject};
+use crate::objc::{autorelease, id, msg, objc_classes, ClassExports, HostObject, NSZonePtr};
 use crate::Environment;
 use std::collections::HashMap;
 use std::ops::Range;
@@ -143,18 +143,30 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 + (id)fontWithName:(id)fontName // NSString*
             size:(CGFloat)fontSize {
-    let font_name = to_rust_string(env, fontName).to_string();
     let host_object = UIFontHostObject {
-        kind: get_app_font(env, &font_name).or_else(|| {
-            get_equivalent_font(&font_name)
-        }).unwrap_or_else(|| {
-            log!("No replacement found for font {}. Using system font instead.", font_name);
-            FontKind::SansRegular
-        }),
+        kind: font_kind(env, fontName),
         size: fontSize,
     };
     let new = env.objc.alloc_object(this, Box::new(host_object), &mut env.mem);
     autorelease(env, new)
+}
+
+// For nibs, which have fonts as objects.
++ (id)allocWithZone:(NSZonePtr)_zone {
+    let host_object = UIFontHostObject {
+        kind: FontKind::SansRegular,
+        size: 17.0,
+    };
+    env.objc.alloc_object(this, Box::new(host_object), &mut env.mem)
+}
+- (id)initWithCoder:(id)coder {
+    let key = get_static_str(env, "UIFontName");
+    let name: id = msg![env; coder decodeObjectForKey:key];
+    let key = get_static_str(env, "UIFontPointSize");
+    let size: f32 = msg![env; coder decodeFloatForKey:key];
+    let kind = font_kind(env, name);
+    *env.objc.borrow_mut::<UIFontHostObject>(this) = UIFontHostObject { kind, size };
+    this
 }
 
 - (id)fontWithSize:(CGFloat)size {
@@ -199,6 +211,20 @@ pub const CLASSES: ClassExports = objc_classes! {
 @end
 
 };
+
+/// The font for a name, as for `fontWithName:size:`.
+fn font_kind(env: &mut Environment, name: id) -> FontKind {
+    let font_name = to_rust_string(env, name).to_string();
+    get_app_font(env, &font_name)
+        .or_else(|| get_equivalent_font(&font_name))
+        .unwrap_or_else(|| {
+            log!(
+                "No replacement found for font {}. Using system font instead.",
+                font_name
+            );
+            FontKind::SansRegular
+        })
+}
 
 /// Find a font the app bundles by name, loading them if needed.
 fn get_app_font(env: &mut Environment, name: &str) -> Option<FontKind> {
