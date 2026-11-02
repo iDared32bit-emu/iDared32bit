@@ -17,6 +17,7 @@ Compatibility:
 - Fixed a crash on iPhone and iPad when a game rotates the screen as it starts.
 - Fixed a crash when starting some older games.
 - Fixed stretched images on buttons in some games.
+- Fixed missing toolbar buttons in some games.
 - Table views in games now show their rows, which can be tapped and edited, fixing crashes in some games' menus.
 - Fixed a crash in some games that show clipped text.
 - Fade transitions between screens now work, fixing a crash in some games.
