@@ -2137,6 +2137,8 @@ pub static RETURN_TO_APP_PICKER_AFTER_ERROR: std::sync::atomic::AtomicBool =
 /// The window argument allows for passing in the parent window for the
 /// messagebox, which is not required but should be done if possible.
 pub fn show_error_messagebox(window: Option<&Window>, error_message: &str) {
+    // Our own private classes are named _touchHLE_Foo.
+    let error_message = &error_message.replace("_touchHLE_", "(private class)_");
     // On iOS, the app picker shows it instead, with an OK button, so the
     // game always returns there.
     if cfg!(target_os = "ios") {
