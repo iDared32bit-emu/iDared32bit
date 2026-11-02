@@ -6,7 +6,7 @@
 //! `UIButton`.
 
 use super::{UIControlState, UIControlStateNormal};
-use crate::frameworks::core_graphics::{CGFloat, CGPoint, CGRect};
+use crate::frameworks::core_graphics::{CGFloat, CGPoint, CGRect, CGSize};
 use crate::frameworks::foundation::ns_string::{from_rust_string, get_static_str, to_rust_string};
 use crate::frameworks::foundation::{NSInteger, NSUInteger};
 use crate::frameworks::uikit::ui_font::UITextAlignmentCenter;
@@ -93,6 +93,8 @@ fn update(env: &mut Environment, this: id) {
     let background_image_view: id = msg![env; this backgroundImageView];
     let background_image: id = msg![env; this currentBackgroundImage];
     () = msg![env; background_image_view setImage:background_image];
+    // The image's size affects the layout.
+    () = msg![env; this setNeedsLayout];
 }
 
 fn init_common(env: &mut Environment, this: id) -> id {
@@ -273,10 +275,45 @@ pub const CLASSES: ClassExports = objc_classes! {
     let background_image_view = host_object.background_image_view;
     let image_view = host_object.image_view;
     let bounds: CGRect = msg![env; this bounds];
-
-    () = msg![env; title_label setFrame:bounds];
     () = msg![env; background_image_view setFrame:bounds];
-    () = msg![env; image_view setFrame:bounds];
+
+    // Unlike the background image, the image keeps its size (shrunk to fit
+    // if needed), and sits left of the title, the two centred together.
+    let image: id = msg![env; image_view image];
+    let image_size = if image == nil {
+        CGSize { width: 0.0, height: 0.0 }
+    } else {
+        let size: CGSize = msg![env; image size];
+        let scale = (bounds.size.width / size.width)
+            .min(bounds.size.height / size.height)
+            .min(1.0);
+        CGSize { width: size.width * scale, height: size.height * scale }
+    };
+    let title: id = msg![env; title_label text];
+    let title_width = if image == nil {
+        // A title alone has the whole button, centred.
+        bounds.size.width
+    } else if title == nil {
+        0.0
+    } else {
+        let size: CGSize = msg![env; title_label sizeThatFits:(bounds.size)];
+        size.width.min(bounds.size.width - image_size.width)
+    };
+    let content_width = if image == nil { title_width } else { image_size.width + title_width };
+    let x = bounds.origin.x + ((bounds.size.width - content_width) / 2.0).round();
+    let image_frame = CGRect {
+        origin: CGPoint {
+            x,
+            y: bounds.origin.y + ((bounds.size.height - image_size.height) / 2.0).round(),
+        },
+        size: image_size,
+    };
+    () = msg![env; image_view setFrame:image_frame];
+    let title_frame = CGRect {
+        origin: CGPoint { x: x + image_size.width, y: bounds.origin.y },
+        size: CGSize { width: title_width, height: bounds.size.height },
+    };
+    () = msg![env; title_label setFrame:title_frame];
 }
 
 - (UIButtonType)buttonType {
