@@ -133,9 +133,6 @@ pub const CLASSES: ClassExports = objc_classes! {
     let this: id = msg_super![env; this initWithFrame:frame];
     let reuse_identifier: id = msg![env; reuse_identifier copy];
 
-    let white: id = msg_class![env; UIColor whiteColor];
-    () = msg![env; this setBackgroundColor:white];
-
     let bounds: CGRect = msg![env; this bounds];
     let selected_background_view: id = msg_class![env; UIView alloc];
     let selected_background_view: id =
