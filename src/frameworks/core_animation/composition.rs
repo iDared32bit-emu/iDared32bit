@@ -39,6 +39,54 @@ pub(super) struct State {
     /// Screen width and height, and the part of the framebuffer texture it
     /// covers, for drawing transition snapshots.
     snapshot_uv: (f32, f32, f32, f32),
+    /// Framebuffer pixels per point, across and down, and the framebuffer's
+    /// height, for clipping.
+    clip_scale: (f32, f32, f32),
+}
+
+/// A clip rectangle in framebuffer pixels: x, y (from the bottom), width and
+/// height, as for `glScissor`.
+type Clip = [i32; 4];
+
+/// Clips drawing to `clip`, or not at all.
+unsafe fn set_clip(gles: &mut dyn GLES, clip: Option<Clip>) {
+    if let Some([x, y, w, h]) = clip {
+        gles.Enable(gles11::SCISSOR_TEST);
+        gles.Scissor(x, y, w, h);
+    } else {
+        gles.Disable(gles11::SCISSOR_TEST);
+    }
+}
+
+/// The clip for a layer that masks to its bounds: its bounds on screen (as a
+/// rectangle around them, if it's rotated), within the clip it's drawn in.
+fn bounds_clip(
+    (sx, sy, fb_height): (f32, f32, f32),
+    bounds: CGRect,
+    cumulative_transform: &Matrix<4>,
+    clip: Option<Clip>,
+) -> Clip {
+    let (mut x0, mut y0, mut x1, mut y1) = (f32::MAX, f32::MAX, f32::MIN, f32::MIN);
+    for (u, v) in [(0.0, 0.0), (1.0, 0.0), (0.0, 1.0), (1.0, 1.0)] {
+        let x = bounds.origin.x + u * bounds.size.width;
+        let y = bounds.origin.y + v * bounds.size.height;
+        let [px, py, _, _] = cumulative_transform.transform([x, y, 0.0, 1.0]);
+        (x0, y0, x1, y1) = (x0.min(px), y0.min(py), x1.max(px), y1.max(py));
+    }
+    // OpenGL counts rows from the bottom.
+    let (left, right) = ((x0 * sx).round() as i32, (x1 * sx).round() as i32);
+    let (bottom, top) = (
+        (fb_height - y1 * sy).round() as i32,
+        (fb_height - y0 * sy).round() as i32,
+    );
+    let (mut left, mut bottom, mut right, mut top) = (left, bottom, right, top);
+    if let Some([cx, cy, cw, ch]) = clip {
+        left = left.max(cx);
+        bottom = bottom.max(cy);
+        right = right.min(cx + cw);
+        top = top.min(cy + ch);
+    }
+    [left, bottom, (right - left).max(0), (top - bottom).max(0)]
 }
 
 struct Transition {
@@ -342,6 +390,11 @@ pub fn recomposite_if_necessary(env: &mut Environment, force: bool) -> Option<In
             .transitions
             .push(transition);
     }
+    env.framework_state.core_animation.composition.clip_scale = (
+        fb_width as f32 / screen_bounds.size.width,
+        fb_height as f32 / screen_bounds.size.height,
+        fb_height as f32,
+    );
     env.framework_state.core_animation.composition.snapshot_uv = (
         screen_bounds.size.width,
         screen_bounds.size.height,
@@ -474,6 +527,7 @@ pub fn recomposite_if_necessary(env: &mut Environment, force: bool) -> Option<In
                 root_layer,
                 cumulative_transform,
                 opacity,
+                None,
             );
         }
     }
@@ -487,6 +541,7 @@ pub fn recomposite_if_necessary(env: &mut Environment, force: bool) -> Option<In
         gles.Viewport(0, 0, fb_width as _, fb_height as _);
         gles.Color4f(1.0, 1.0, 1.0, 1.0);
         gles.Disable(gles11::BLEND);
+        gles.Disable(gles11::SCISSOR_TEST);
         gles.MatrixMode(gles11::PROJECTION);
         gles.LoadIdentity();
         gles.MatrixMode(gles11::MODELVIEW);
@@ -557,6 +612,7 @@ unsafe fn composite_layer_recursive(
     layer: id,
     cumulative_transform: Matrix<4>,
     opacity: CGFloat,
+    clip: Option<Clip>,
 ) {
     // TODO: back-to-front drawing is not efficient, could we use front-to-back?
 
@@ -593,6 +649,23 @@ unsafe fn composite_layer_recursive(
 
         cumulative_transform
     };
+
+    // A layer that masks to its bounds clips itself and its sublayers.
+    let clip = if host_obj.masks_to_bounds {
+        let clip_scale = env.framework_state.core_animation.composition.clip_scale;
+        Some(bounds_clip(
+            clip_scale,
+            host_obj.bounds,
+            &cumulative_transform,
+            clip,
+        ))
+    } else {
+        clip
+    };
+    if clip.is_some_and(|[_, _, w, h]| w == 0 || h == 0) {
+        return;
+    }
+    set_clip(gles.as_mut(), clip);
 
     if host_obj.hidden {
         std::mem::drop(gles);
@@ -853,18 +926,20 @@ unsafe fn composite_layer_recursive(
         a.total_cmp(&b)
     });
     for &child_layer in &sublayers {
-        // TODO: clipping/masksToBounds support
         composite_layer_recursive(
             env,
             animation_state,
             child_layer,
             cumulative_transform,
             opacity,
+            clip,
         )
     }
 
     // The transition covers the sublayers too.
     if let Some((animation, progress)) = host_obj.fade_transition {
+        let window = env.window.as_mut().unwrap();
+        set_clip(window.make_internal_gl_ctx_current().as_mut(), clip);
         draw_transition_snapshot(
             env,
             animation,

@@ -79,6 +79,8 @@ pub(super) struct CALayerHostObject {
     pub(super) fade_transition: Option<(id, f32)>,
     /// Where `contents` goes in the bounds.
     pub(super) contents_gravity: ContentsGravity,
+    /// Whether the contents and sublayers are clipped to the bounds.
+    pub(super) masks_to_bounds: bool,
 }
 
 /// Where a layer's `contents` go in its bounds. This is set from a view's
@@ -229,6 +231,7 @@ pub const CLASSES: ClassExports = objc_classes! {
         anonymous_animations: HashSet::new(),
         fade_transition: None,
         contents_gravity: ContentsGravity::Resize,
+        masks_to_bounds: false,
     });
     env.objc.alloc_object(this, host_object, &mut env.mem)
 }
@@ -442,6 +445,13 @@ pub const CLASSES: ClassExports = objc_classes! {
         let hidden: id = msg_class![env; NSNumber numberWithBool:hidden];
         add_default_implied_basic_animation(env, this, "hidden", old_hidden, hidden);
     }
+}
+
+- (bool)masksToBounds {
+    env.objc.borrow::<CALayerHostObject>(this).masks_to_bounds
+}
+- (())setMasksToBounds:(bool)masks {
+    env.objc.borrow_mut::<CALayerHostObject>(this).masks_to_bounds = masks;
 }
 
 - (bool)isOpaque {
