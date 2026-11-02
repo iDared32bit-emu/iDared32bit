@@ -469,6 +469,9 @@ pub const CLASSES: ClassExports = objc_classes! {
     let key_ns_string = get_static_str(env, "UIUserInteractionDisabled");
     let user_interaction_disabled: bool = msg![env; coder decodeBoolForKey:key_ns_string];
 
+    let key_ns_string = get_static_str(env, "UIClipsToBounds");
+    let clips_to_bounds: bool = msg![env; coder decodeBoolForKey:key_ns_string];
+
     let key_ns_string = get_static_str(env, "UIContentMode");
     let content_mode: NSInteger = msg![env; coder decodeIntegerForKey:key_ns_string];
 
@@ -509,6 +512,7 @@ pub const CLASSES: ClassExports = objc_classes! {
     () = msg![env; this setUserInteractionEnabled:(!user_interaction_disabled)];
     () = msg![env; this setAutoresizingMask:autoresizing_mask];
     () = msg![env; this setContentMode:content_mode];
+    () = msg![env; this setClipsToBounds:clips_to_bounds];
     () = msg![env; this setAutoresizesSubviews:autoresizes_subviews];
 
     for i in 0..subview_count {
@@ -816,11 +820,17 @@ pub const CLASSES: ClassExports = objc_classes! {
     msg![env; layer setHidden:hidden]
 }
 
+// The layer does the clipping.
+- (bool)clipsToBounds {
+    let layer = env.objc.borrow::<UIViewHostObject>(this).layer;
+    msg![env; layer masksToBounds]
+}
 - (bool)isClipsToBounds {
-    false
+    msg![env; this clipsToBounds]
 }
 - (())setClipsToBounds:(bool)clips {
-    todo_objc_setter!(this, clips);
+    let layer = env.objc.borrow::<UIViewHostObject>(this).layer;
+    () = msg![env; layer setMasksToBounds:clips];
 }
 
 - (bool)isOpaque {

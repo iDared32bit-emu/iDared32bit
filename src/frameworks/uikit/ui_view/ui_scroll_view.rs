@@ -11,8 +11,8 @@ use crate::frameworks::core_graphics::{CGFloat, CGPoint, CGRect, CGSize};
 use crate::frameworks::foundation::NSInteger;
 use crate::frameworks::uikit::ui_geometry::UIEdgeInsets;
 use crate::objc::{
-    id, impl_HostObject_with_superclass, msg, msg_send, nil, objc_classes, todo_objc_setter,
-    ClassExports, NSZonePtr, SEL,
+    id, impl_HostObject_with_superclass, msg, msg_send, msg_super, nil, objc_classes,
+    todo_objc_setter, ClassExports, NSZonePtr, SEL,
 };
 use crate::Environment;
 
@@ -154,10 +154,11 @@ pub const CLASSES: ClassExports = objc_classes! {
     todo_objc_setter!(this, style);
 }
 
-- (bool)isClipsToBounds {
-    // TODO: Remove once clips to bounds is implemented properly
-    // and use "true" as the default value.
-    true
+// Scroll views clip by default. Nibs say for themselves.
+- (id)initWithFrame:(CGRect)frame {
+    let this: id = msg_super![env; this initWithFrame:frame];
+    () = msg![env; this setClipsToBounds:true];
+    this
 }
 
 - (())touchesMoved:(id)touches // NSSet* of UITouch*
