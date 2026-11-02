@@ -19,7 +19,7 @@ Compatibility:
 - Fixed stretched images on buttons in some games.
 - Fixed missing toolbar buttons in some games.
 - Views now resize their contents like on a device, fixing missing buttons in some games.
-- Fixed a crash in some games when showing a dialog.
+- Fixed crashes in some games when showing or closing a dialog.
 - Table views in games now show their rows, which can be tapped and edited, fixing crashes in some games' menus.
 - Fixed a crash in some games that show clipped text.
 - Fade transitions between screens now work, fixing a crash in some games.
