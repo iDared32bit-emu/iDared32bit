@@ -16,7 +16,8 @@ Compatibility:
 - Fixed some games crashing at random.
 - Fixed a crash on iPhone and iPad when a game rotates the screen as it starts.
 - Fixed a crash when starting some older games.
-- Fixed stretched images on buttons in some games.
+- Fixed stretched images in some games.
+- Fixed missing text in some games.
 - Fixed missing toolbar buttons in some games.
 - Views now resize their contents like on a device, fixing missing buttons in some games.
 - Fixed crashes in some games when showing or closing a dialog.
