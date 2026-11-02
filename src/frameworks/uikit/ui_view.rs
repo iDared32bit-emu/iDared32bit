@@ -94,8 +94,20 @@ pub struct UIViewHostObject {
     multiple_touch_enabled: bool,
     /// Whether `layoutSubviews` should be called before the next frame.
     needs_layout: bool,
+    autoresizing_mask: UIViewAutoresizing,
+    autoresizes_subviews: bool,
 }
 impl HostObject for UIViewHostObject {}
+
+type UIViewAutoresizing = NSUInteger;
+const UIViewAutoresizingNone: UIViewAutoresizing = 0;
+const UIViewAutoresizingFlexibleLeftMargin: UIViewAutoresizing = 1 << 0;
+const UIViewAutoresizingFlexibleWidth: UIViewAutoresizing = 1 << 1;
+const UIViewAutoresizingFlexibleRightMargin: UIViewAutoresizing = 1 << 2;
+const UIViewAutoresizingFlexibleTopMargin: UIViewAutoresizing = 1 << 3;
+const UIViewAutoresizingFlexibleHeight: UIViewAutoresizing = 1 << 4;
+const UIViewAutoresizingFlexibleBottomMargin: UIViewAutoresizing = 1 << 5;
+
 impl Default for UIViewHostObject {
     fn default() -> UIViewHostObject {
         // The Default trait is implemented so subclasses will get the same
@@ -110,6 +122,8 @@ impl Default for UIViewHostObject {
             user_interaction_enabled: true,
             multiple_touch_enabled: false,
             needs_layout: true,
+            autoresizing_mask: UIViewAutoresizingNone,
+            autoresizes_subviews: true,
         }
     }
 }
@@ -429,6 +443,14 @@ pub const CLASSES: ClassExports = objc_classes! {
     let key_ns_string = get_static_str(env, "UIUserInteractionDisabled");
     let user_interaction_disabled: bool = msg![env; coder decodeBoolForKey:key_ns_string];
 
+    let key_ns_string = get_static_str(env, "UIAutoresizingMask");
+    let autoresizing_mask: NSInteger = msg![env; coder decodeIntegerForKey:key_ns_string];
+    let autoresizing_mask = autoresizing_mask as UIViewAutoresizing;
+
+    // Nibs only have this when it's on.
+    let key_ns_string = get_static_str(env, "UIAutoresizeSubviews");
+    let autoresizes_subviews: bool = msg![env; coder decodeBoolForKey:key_ns_string];
+
     let key_ns_string = get_static_str(env, "UISubviews");
     let subviews: id = msg![env; coder decodeObjectForKey:key_ns_string];
     let subview_count: NSUInteger = msg![env; subviews count];
@@ -456,6 +478,8 @@ pub const CLASSES: ClassExports = objc_classes! {
     () = msg![env; this setTag:tag];
     () = msg![env; this setMultipleTouchEnabled:multi_touch_enabled];
     () = msg![env; this setUserInteractionEnabled:(!user_interaction_disabled)];
+    () = msg![env; this setAutoresizingMask:autoresizing_mask];
+    () = msg![env; this setAutoresizesSubviews:autoresizes_subviews];
 
     for i in 0..subview_count {
         let subview: id = msg![env; subviews objectAtIndex:i];
@@ -728,6 +752,8 @@ pub const CLASSES: ClassExports = objc_classes! {
         user_interaction_enabled: _,
         multiple_touch_enabled: _,
         needs_layout: _,
+        autoresizing_mask: _,
+        autoresizes_subviews: _,
     } = std::mem::take(env.objc.borrow_mut(this));
 
     release(env, layer);
@@ -833,6 +859,7 @@ pub const CLASSES: ClassExports = objc_classes! {
     let old: CGRect = msg![env; layer bounds];
     () = msg![env; layer setBounds:bounds];
     if old.size != bounds.size {
+        autoresize_subviews(env, this, old.size, bounds.size);
         () = msg![env; this setNeedsLayout];
     }
 }
@@ -851,9 +878,11 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 - (())setFrame:(CGRect)frame {
     let layer = env.objc.borrow::<UIViewHostObject>(this).layer;
-    let old: CGRect = msg![env; layer frame];
+    let old: CGRect = msg![env; layer bounds];
     () = msg![env; layer setFrame:frame];
-    if old.size != frame.size {
+    let new: CGRect = msg![env; layer bounds];
+    if old.size != new.size {
+        autoresize_subviews(env, this, old.size, new.size);
         () = msg![env; this setNeedsLayout];
     }
 }
@@ -1006,11 +1035,17 @@ pub const CLASSES: ClassExports = objc_classes! {
     msg![env; this_layer convertRect:rect toLayer:other_layer]
 }
 
-- (())setAutoresizingMask:(NSUInteger)mask {
-    todo_objc_setter!(this, mask);
+- (UIViewAutoresizing)autoresizingMask {
+    env.objc.borrow::<UIViewHostObject>(this).autoresizing_mask
+}
+- (())setAutoresizingMask:(UIViewAutoresizing)mask {
+    env.objc.borrow_mut::<UIViewHostObject>(this).autoresizing_mask = mask;
+}
+- (bool)autoresizesSubviews {
+    env.objc.borrow::<UIViewHostObject>(this).autoresizes_subviews
 }
 - (())setAutoresizesSubviews:(bool)enabled {
-    todo_objc_setter!(this, enabled);
+    env.objc.borrow_mut::<UIViewHostObject>(this).autoresizes_subviews = enabled;
 }
 
 - (CGSize)sizeThatFits:(CGSize)size {
@@ -1131,3 +1166,83 @@ pub const CLASSES: ClassExports = objc_classes! {
 @end
 
 };
+
+/// When a view changes size, its subviews' flexible margins and sizes take up
+/// the difference, shared in proportion to their current sizes (as Apple's
+/// `UIViewAutoresizing` documentation describes).
+fn autoresize_subviews(env: &mut Environment, this: id, old: CGSize, new: CGSize) {
+    if !env
+        .objc
+        .borrow::<UIViewHostObject>(this)
+        .autoresizes_subviews
+    {
+        return;
+    }
+    let subviews = env.objc.borrow::<UIViewHostObject>(this).subviews.clone();
+    for subview in subviews {
+        let mask = env
+            .objc
+            .borrow::<UIViewHostObject>(subview)
+            .autoresizing_mask;
+        if mask == UIViewAutoresizingNone {
+            continue;
+        }
+        let mut frame: CGRect = msg![env; subview frame];
+        let (x, width) = autoresize_axis(
+            frame.origin.x,
+            frame.size.width,
+            old.width,
+            new.width,
+            [
+                mask & UIViewAutoresizingFlexibleLeftMargin != 0,
+                mask & UIViewAutoresizingFlexibleWidth != 0,
+                mask & UIViewAutoresizingFlexibleRightMargin != 0,
+            ],
+        );
+        let (y, height) = autoresize_axis(
+            frame.origin.y,
+            frame.size.height,
+            old.height,
+            new.height,
+            [
+                mask & UIViewAutoresizingFlexibleTopMargin != 0,
+                mask & UIViewAutoresizingFlexibleHeight != 0,
+                mask & UIViewAutoresizingFlexibleBottomMargin != 0,
+            ],
+        );
+        frame.origin.x = x;
+        frame.size.width = width;
+        frame.origin.y = y;
+        frame.size.height = height;
+        () = msg![env; subview setFrame:frame];
+    }
+}
+
+/// One axis of [autoresize_subviews]: the new position and size, given which
+/// of the leading margin, size and trailing margin are flexible.
+fn autoresize_axis(
+    pos: CGFloat,
+    size: CGFloat,
+    old: CGFloat,
+    new: CGFloat,
+    flexible: [bool; 3],
+) -> (CGFloat, CGFloat) {
+    let parts = [pos, size, old - pos - size];
+    let flexible_total: CGFloat = (0..3).filter(|&i| flexible[i]).map(|i| parts[i]).sum();
+    let flexible_count = flexible.iter().filter(|&&f| f).count();
+    if flexible_count == 0 {
+        return (pos, size);
+    }
+    let delta = new - old;
+    // Each flexible part's share of the difference.
+    let share = |i: usize| -> CGFloat {
+        if !flexible[i] {
+            0.0
+        } else if flexible_total > 0.0 {
+            delta * parts[i] / flexible_total
+        } else {
+            delta / flexible_count as CGFloat
+        }
+    };
+    (pos + share(0), (size + share(1)).max(0.0))
+}
