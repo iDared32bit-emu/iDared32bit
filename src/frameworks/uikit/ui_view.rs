@@ -16,6 +16,7 @@ pub mod ui_navigation_bar;
 pub mod ui_page_control;
 pub mod ui_picker_view;
 pub mod ui_scroll_view;
+pub mod ui_table_view_cell;
 pub mod ui_toolbar;
 pub mod ui_web_view;
 pub mod ui_window;
