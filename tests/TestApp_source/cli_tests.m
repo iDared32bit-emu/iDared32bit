@@ -666,7 +666,17 @@ int test_NSObject_self() {
   NSObject *obj = [NSObject new];
   id result = [obj self];
   [obj release];
-  return result == obj ? 0 : -2;
+  if (result != obj)
+    return -2;
+  // NSObject is the root class.
+  if ([NSObject superclass] != nil ||
+      [NSMutableArray superclass] != [NSArray class])
+    return -3;
+  NSMutableArray *array = [NSMutableArray new];
+  Class superclass = [array superclass];
+  [array release];
+  // NSMutableArray's private subclasses vary, but are all mutable arrays.
+  return [superclass isSubclassOfClass:[NSArray class]] ? 0 : -4;
 }
 
 @interface PropertyListTest : NSObject {

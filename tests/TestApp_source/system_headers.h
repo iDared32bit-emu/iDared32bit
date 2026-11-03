@@ -97,12 +97,15 @@ void (*method_getImplementation(Method m))(void);
 }
 + (Class)class;
 + (instancetype)self;
++ (Class)superclass;
++ (BOOL)isSubclassOfClass:(Class)aClass;
 + (instancetype)alloc;
 + (instancetype)new;
 + (BOOL)respondsToSelector:(SEL)selector;
 - (instancetype)init;
 - (instancetype)self;
 - (Class)class;
+- (Class)superclass;
 - (instancetype)retain;
 - (void)release;
 - (instancetype)autorelease;
