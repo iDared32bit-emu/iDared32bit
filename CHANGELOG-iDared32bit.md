@@ -31,6 +31,7 @@ Compatibility:
 - Fixed crashes in some games that encrypt data.
 - Games that try to use the internet now see that it's offline, fixing crashes in some games.
 - Fixed crashes in some games with ads.
+- Fixed crashes in some games' menus, and when closing some games.
 - Fade transitions between screens now work, fixing a crash in some games.
 - Navigation bars in games are now drawn, with working buttons, so some games' settings and store screens no longer crash.
 - Segmented controls in games are now drawn and can be tapped, fixing a crash in some games' settings screens.
