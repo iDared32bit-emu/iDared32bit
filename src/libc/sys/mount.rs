@@ -76,12 +76,8 @@ fn fake_statfs() -> statfs {
 
 /// Internal helper for `statfs`, not a part of the API.
 pub fn statfs_inner(env: &mut Environment, path: ConstPtr<u8>) -> Result<statfs, i32> {
-    // FIXME does directory matter?
-    assert!(env
-        .mem
-        .cstr_at_utf8(path)
-        .is_ok_and(|path| path.starts_with(env.fs.home_directory().join("Documents").as_str())));
-
+    // Any path will do: games can only see one file system, and the values
+    // are made up anyway.
     // TODO: Handle additional errors
     let path = env.mem.cstr_at_utf8(path).unwrap();
     if !env.fs.exists(GuestPath::new(path)) {

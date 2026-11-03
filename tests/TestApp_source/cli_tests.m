@@ -33,6 +33,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/mount.h>
 #include <sys/sysctl.h>
 #include <sys/time.h>
 #include <sys/types.h>
@@ -750,6 +751,17 @@ int test_class_copyPropertyList() {
   return YES;
 }
 @end
+
+int test_statfs() {
+  // Any existing path works, not just ones in Documents.
+  struct statfs buf;
+  if (statfs([NSHomeDirectory() UTF8String], &buf) != 0 || buf.f_bsize == 0)
+    return -1;
+  errno = 0;
+  if (statfs("/does/not/exist", &buf) != -1 || errno != ENOENT)
+    return -2;
+  return 0;
+}
 
 int test_NSAssertionHandler() {
   // A failure would end the test app, so only the handler itself is checked.
@@ -8546,6 +8558,7 @@ struct {
     FUNC_DEF(test_vsnprintf),
     FUNC_DEF(test_NSObject_self),
     FUNC_DEF(test_class_copyPropertyList),
+    FUNC_DEF(test_statfs),
     FUNC_DEF(test_NSAssertionHandler),
     FUNC_DEF(test_NSError),
     FUNC_DEF(test_NSURLConnection_offline),
