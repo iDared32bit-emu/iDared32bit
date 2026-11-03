@@ -64,6 +64,11 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 + (id)imageNamed:(id)name { // NSString*
+    // As on iOS, there's no image without a name.
+    if name == nil {
+        log!("Warning: [UIImage imageNamed:nil] => nil");
+        return nil;
+    }
     // TODO: figure out whether this is actually correct in all cases
     let bundle: id = msg_class![env; NSBundle mainBundle];
     let path: id = msg![env; bundle pathForResource:name ofType:nil];
