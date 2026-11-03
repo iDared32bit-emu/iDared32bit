@@ -704,6 +704,87 @@ int test_CC_SHA256() {
   return 0;
 }
 
+int test_CCCrypt() {
+  const unsigned char key[32] = {
+      0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a,
+      0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15,
+      0x16, 0x17, 0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f};
+  unsigned char out[48];
+  size_t moved = 0;
+
+  // FIPS-197 AES-128 example, ECB without padding.
+  const unsigned char plain[16] = {0x00, 0x11, 0x22, 0x33, 0x44, 0x55,
+                                   0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb,
+                                   0xcc, 0xdd, 0xee, 0xff};
+  const unsigned char ecb128[16] = {0x69, 0xc4, 0xe0, 0xd8, 0x6a, 0x7b,
+                                    0x04, 0x30, 0xd8, 0xcd, 0xb7, 0x80,
+                                    0x70, 0xb4, 0xc5, 0x5a};
+  if (CCCrypt(kCCEncrypt, kCCAlgorithmAES128, kCCOptionECBMode, key, 16, NULL,
+              plain, 16, out, sizeof(out), &moved) != kCCSuccess ||
+      moved != 16 || memcmp(out, ecb128, 16) != 0)
+    return -1;
+  if (CCCrypt(kCCDecrypt, kCCAlgorithmAES128, kCCOptionECBMode, key, 16, NULL,
+              ecb128, 16, out, sizeof(out), &moved) != kCCSuccess ||
+      moved != 16 || memcmp(out, plain, 16) != 0)
+    return -2;
+
+  // FIPS-197 AES-256 example.
+  const unsigned char ecb256[16] = {0x8e, 0xa2, 0xb7, 0xca, 0x51, 0x67,
+                                    0x45, 0xbf, 0xea, 0xfc, 0x49, 0x90,
+                                    0x4b, 0x49, 0x60, 0x89};
+  if (CCCrypt(kCCEncrypt, kCCAlgorithmAES128, kCCOptionECBMode, key, 32, NULL,
+              plain, 16, out, sizeof(out), &moved) != kCCSuccess ||
+      moved != 16 || memcmp(out, ecb256, 16) != 0)
+    return -3;
+
+  // CBC with PKCS7 padding and an IV.
+  const unsigned char iv[16] = {0x0f, 0x0e, 0x0d, 0x0c, 0x0b, 0x0a, 0x09, 0x08,
+                                0x07, 0x06, 0x05, 0x04, 0x03, 0x02, 0x01, 0x00};
+  const unsigned char cbc[16] = {0x3f, 0xb5, 0x1c, 0x0c, 0xcb, 0xcb,
+                                 0x53, 0x3b, 0xb8, 0x2a, 0x08, 0xe6,
+                                 0x81, 0x70, 0x13, 0xea};
+  if (CCCrypt(kCCEncrypt, kCCAlgorithmAES128, kCCOptionPKCS7Padding, key, 16,
+              iv, "hello world", 11, out, sizeof(out), &moved) != kCCSuccess ||
+      moved != 16 || memcmp(out, cbc, 16) != 0)
+    return -4;
+  // Decrypted in place.
+  if (CCCrypt(kCCDecrypt, kCCAlgorithmAES128, kCCOptionPKCS7Padding, key, 16,
+              iv, out, 16, out, sizeof(out), &moved) != kCCSuccess ||
+      moved != 11 || memcmp(out, "hello world", 11) != 0)
+    return -5;
+
+  // A whole block of input gets a whole block of padding. Without an
+  // IV, CBC uses one of all zeroes.
+  const unsigned char cbc256[32] = {
+      0xd8, 0xc9, 0x57, 0x58, 0xe3, 0x35, 0x3e, 0x53, 0x0f, 0xa5, 0x2b,
+      0xd1, 0x0e, 0x73, 0xb9, 0x86, 0x4f, 0x6b, 0xa3, 0x02, 0x22, 0x07,
+      0x4c, 0x4d, 0x47, 0x7c, 0x3f, 0x29, 0x4f, 0x12, 0xa8, 0x2f};
+  if (CCCrypt(kCCEncrypt, kCCAlgorithmAES128, kCCOptionPKCS7Padding, key, 32,
+              NULL, "0123456789abcdef", 16, out, sizeof(out),
+              &moved) != kCCSuccess ||
+      moved != 32 || memcmp(out, cbc256, 32) != 0)
+    return -6;
+
+  // Too small an output buffer says how much is needed.
+  moved = 0;
+  if (CCCrypt(kCCEncrypt, kCCAlgorithmAES128, kCCOptionPKCS7Padding, key, 16,
+              iv, "hello world", 11, out, 15, &moved) != kCCBufferTooSmall ||
+      moved != 16)
+    return -7;
+
+  // Without padding, the input must be whole blocks.
+  if (CCCrypt(kCCEncrypt, kCCAlgorithmAES128, 0, key, 16, iv, "hello world", 11,
+              out, sizeof(out), &moved) != kCCAlignmentError)
+    return -8;
+
+  // AES has no 20-byte keys.
+  if (CCCrypt(kCCEncrypt, kCCAlgorithmAES128, 0, key, 20, iv, plain, 16, out,
+              sizeof(out), &moved) == kCCSuccess)
+    return -9;
+
+  return 0;
+}
+
 int test_sscanf() {
   int a, b;
   short c, d;
@@ -7753,6 +7834,7 @@ struct {
     FUNC_DEF(test_qsort),
     FUNC_DEF(test_vsnprintf),
     FUNC_DEF(test_CC_SHA256),
+    FUNC_DEF(test_CCCrypt),
     FUNC_DEF(test_sscanf),
     FUNC_DEF(test_swscanf),
     FUNC_DEF(test_realloc),

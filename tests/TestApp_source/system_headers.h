@@ -32,6 +32,19 @@ unsigned char *CC_SHA256(const void *, CC_LONG, unsigned char *);
 int CC_SHA256_Init(CC_SHA256_CTX *);
 int CC_SHA256_Update(CC_SHA256_CTX *, const void *, CC_LONG);
 int CC_SHA256_Final(unsigned char *, CC_SHA256_CTX *);
+typedef int32_t CCCryptorStatus;
+typedef uint32_t CCOperation, CCAlgorithm, CCOptions;
+enum { kCCEncrypt = 0, kCCDecrypt };
+enum { kCCAlgorithmAES128 = 0 };
+enum { kCCOptionPKCS7Padding = 1, kCCOptionECBMode = 2 };
+enum {
+  kCCSuccess = 0,
+  kCCBufferTooSmall = -4301,
+  kCCAlignmentError = -4303,
+};
+CCCryptorStatus CCCrypt(CCOperation, CCAlgorithm, CCOptions, const void *,
+                        size_t, const void *, const void *, size_t, void *,
+                        size_t, size_t *);
 
 // Objective-C runtime
 

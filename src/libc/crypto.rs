@@ -12,8 +12,8 @@
 use crate::dyld::FunctionExports;
 use crate::mem::{ConstVoidPtr, GuestUSize, MutPtr, MutVoidPtr, SafeRead};
 use crate::{export_c_func, Environment};
-use aes::cipher::block_padding::NoPadding;
-use aes::cipher::{block_padding::Pkcs7, BlockEncryptMut, KeyInit};
+use aes::cipher::block_padding::{NoPadding, Padding, Pkcs7};
+use aes::cipher::{BlockCipher, BlockDecryptMut, BlockEncryptMut, KeyInit, KeyIvInit};
 use digest::Digest;
 use hmac::Mac;
 use md5::Md5;
@@ -64,13 +64,13 @@ fn CC_MD5_Final(env: &mut Environment, md: MutPtr<u8>, ctx: MutPtr<CC_MD5_CTX>) 
 }
 
 type HmacSha1 = hmac::Hmac<Sha1>;
-type Aes128EcbEnc = ecb::Encryptor<aes::Aes128>;
 
 type CCHmacAlgorithm = u32;
 pub const kCCHmacAlgSHA1: CCHmacAlgorithm = 0;
 
 type CCOperation = u32;
 pub const kCCEncrypt: CCOperation = 0;
+pub const kCCDecrypt: CCOperation = 1;
 type CCAlgorithm = u32;
 // Also used for AES of other sizes.
 pub const kCCAlgorithmAES128: CCAlgorithm = 0;
@@ -78,8 +78,11 @@ type CCOptions = u32;
 pub const kCCOptionPKCS7Padding: CCOptions = 1;
 pub const kCCOptionECBMode: CCOptions = 2;
 type CCCryptorStatus = i32;
+pub const kCCSuccess: CCCryptorStatus = 0;
+pub const kCCParamError: CCCryptorStatus = -4300;
 pub const kCCBufferTooSmall: CCCryptorStatus = -4301;
 pub const kCCAlignmentError: CCCryptorStatus = -4303;
+pub const kCCDecodeError: CCCryptorStatus = -4304;
 
 fn CC_MD5(env: &mut Environment, data: ConstVoidPtr, len: u32, md: MutPtr<u8>) -> MutPtr<u8> {
     let mut hasher = Md5::new();
@@ -217,7 +220,33 @@ fn CCHmac(
     }
 }
 
-// TODO: Write tests
+/// Encrypts or decrypts with block cipher `C` in ECB or CBC mode, padding
+/// with `P`. Returns [None] if the padding is wrong when decrypting.
+fn block_crypt<C, P>(
+    op: CCOperation,
+    ecb: bool,
+    key: &[u8],
+    iv: &[u8],
+    data: &[u8],
+) -> Option<Vec<u8>>
+where
+    C: BlockCipher + BlockEncryptMut + BlockDecryptMut + KeyInit,
+    P: Padding<C::BlockSize>,
+{
+    let key = GenericArray::from_slice(key);
+    let iv = GenericArray::from_slice(iv);
+    Some(match (op, ecb) {
+        (kCCEncrypt, true) => ecb::Encryptor::<C>::new(key).encrypt_padded_vec_mut::<P>(data),
+        (kCCEncrypt, false) => cbc::Encryptor::<C>::new(key, iv).encrypt_padded_vec_mut::<P>(data),
+        (_, true) => ecb::Decryptor::<C>::new(key)
+            .decrypt_padded_vec_mut::<P>(data)
+            .ok()?,
+        (_, false) => cbc::Decryptor::<C>::new(key, iv)
+            .decrypt_padded_vec_mut::<P>(data)
+            .ok()?,
+    })
+}
+
 #[allow(clippy::too_many_arguments)]
 fn CCCrypt(
     env: &mut Environment,
@@ -226,57 +255,70 @@ fn CCCrypt(
     options: CCOptions,
     key: ConstVoidPtr,
     key_length: GuestUSize,
-    _iv: ConstVoidPtr,
+    iv: ConstVoidPtr,
     data_in: ConstVoidPtr,
     data_in_length: GuestUSize,
     data_out: MutVoidPtr,
     data_out_available: GuestUSize,
     data_out_moved: MutPtr<GuestUSize>,
 ) -> CCCryptorStatus {
-    match (alg, op) {
-        (kCCAlgorithmAES128, kCCEncrypt) => {
-            assert_eq!(
-                options & kCCOptionECBMode,
-                kCCOptionECBMode,
-                "Only ECB is supported for CCCrypt(...)!"
-            );
-            assert_eq!(
-                key_length, 16,
-                "Only AES-128 is supported for CCCrypt(...)!"
-            );
-            let out_size = if options & kCCOptionPKCS7Padding == kCCOptionPKCS7Padding {
-                // The padding includes an extra block if the input is a
-                // multiple of the block size.
-                key_length + data_in_length / data_out_available * key_length
-            } else {
-                data_in_length
-            };
-            if data_out_available < out_size {
-                log!("Output buffer too small in CCCrypt(...) AES encryption (in size: {data_in_length} out size: {data_out_available}), returning kCCBufferTooSmall");
-                env.mem.write(data_out_moved, data_in_length);
-                return kCCBufferTooSmall;
-            }
-            let key_slice = env.mem.bytes_at(key.cast(), key_length);
-            let in_slice = env.mem.bytes_at(data_in.cast(), data_in_length);
-            let enc_vec = if options & kCCOptionPKCS7Padding == 0 {
-                if !data_in_length.is_multiple_of(key_length) {
-                    log!("Alignment error in CCCrypt(...) AES encryption with no padding specified, returning kCCAlignmentError.");
-                    return kCCAlignmentError;
-                }
-                Aes128EcbEnc::new(key_slice.into()).encrypt_padded_vec_mut::<NoPadding>(in_slice)
-            } else {
-                Aes128EcbEnc::new(key_slice.into()).encrypt_padded_vec_mut::<Pkcs7>(in_slice)
-            };
-
-            log_dbg!("CCCrypt([AES128 encrypt] key: {key_slice:?}, data_in: {in_slice:?}, data_out: {enc_vec:?}) ");
-            let out_slice = env.mem.bytes_at_mut(data_out.cast(), out_size);
-            out_slice.copy_from_slice(enc_vec.as_slice());
-        }
-        _ => {
-            panic!("Unsupported algorithm & operation ({alg}, {op}) for CCCrypt(...)!");
-        }
+    assert!(
+        alg == kCCAlgorithmAES128,
+        "Unsupported algorithm {alg} for CCCrypt(...)!"
+    );
+    if op != kCCEncrypt && op != kCCDecrypt {
+        return kCCParamError;
     }
-    0
+    if ![16, 24, 32].contains(&key_length) {
+        return kCCParamError;
+    }
+    const BLOCK_SIZE: GuestUSize = 16;
+    let padding = options & kCCOptionPKCS7Padding != 0;
+    let ecb = options & kCCOptionECBMode != 0;
+
+    // Like CCCryptorGetOutputLength(), the size needed before unpadding.
+    let needed = if op == kCCEncrypt && padding {
+        (data_in_length / BLOCK_SIZE + 1) * BLOCK_SIZE
+    } else {
+        data_in_length
+    };
+    if needed > data_out_available {
+        if !data_out_moved.is_null() {
+            env.mem.write(data_out_moved, needed);
+        }
+        return kCCBufferTooSmall;
+    }
+    if (op == kCCDecrypt || !padding) && !data_in_length.is_multiple_of(BLOCK_SIZE) {
+        return kCCAlignmentError;
+    }
+
+    // Without an IV, CBC mode uses one of all zeroes.
+    let iv = if iv.is_null() {
+        [0u8; BLOCK_SIZE as usize]
+    } else {
+        env.mem.bytes_at(iv.cast(), BLOCK_SIZE).try_into().unwrap()
+    };
+    let key = env.mem.bytes_at(key.cast(), key_length);
+    let data = env.mem.bytes_at(data_in.cast(), data_in_length);
+    let result = match (key_length, padding) {
+        (16, false) => block_crypt::<aes::Aes128, NoPadding>(op, ecb, key, &iv, data),
+        (16, true) => block_crypt::<aes::Aes128, Pkcs7>(op, ecb, key, &iv, data),
+        (24, false) => block_crypt::<aes::Aes192, NoPadding>(op, ecb, key, &iv, data),
+        (24, true) => block_crypt::<aes::Aes192, Pkcs7>(op, ecb, key, &iv, data),
+        (32, false) => block_crypt::<aes::Aes256, NoPadding>(op, ecb, key, &iv, data),
+        _ => block_crypt::<aes::Aes256, Pkcs7>(op, ecb, key, &iv, data),
+    };
+    let Some(result) = result else {
+        return kCCDecodeError;
+    };
+    let result_length: GuestUSize = result.len().try_into().unwrap();
+    env.mem
+        .bytes_at_mut(data_out.cast(), result_length)
+        .copy_from_slice(&result);
+    if !data_out_moved.is_null() {
+        env.mem.write(data_out_moved, result_length);
+    }
+    kCCSuccess
 }
 
 pub const FUNCTIONS: FunctionExports = &[
