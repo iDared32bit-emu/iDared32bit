@@ -17,8 +17,10 @@
 use super::ns_string::{from_rust_string, to_rust_string};
 use super::{ns_key_value_observing, NSTimeInterval, NSUInteger};
 use crate::abi::GuestFunction;
-use crate::frameworks::foundation::ns_run_loop::{add_perform_request, cancel_perform_requests};
-use crate::frameworks::foundation::ns_thread::detach_new_thread_inner;
+use crate::frameworks::foundation::ns_run_loop::{
+    add_perform_request, cancel_perform_requests, run_loop_for_thread_id,
+};
+use crate::frameworks::foundation::ns_thread::{detach_new_thread_inner, thread_id_for_ns_thread};
 use crate::libc::semaphore::{host_destroy_semaphore, sem_wait};
 use crate::mem::MutVoidPtr;
 use crate::objc::{
@@ -32,6 +34,19 @@ use crate::Environment;
 
 /// The `NSMethodSignature*` of an instance method of `class`, or nil if
 /// there's no such method.
+/// Performs a selector straight away, for `waitUntilDone:` on the thread
+/// it's for.
+fn perform_now(env: &mut Environment, this: id, sel: SEL, arg: id) {
+    if sel.as_str(&env.mem).ends_with(':') {
+        // Like performSelector:withObject:, the method may take a
+        // non-object argument.
+        () = msg_send_no_type_checking(env, (this, sel, arg));
+    } else {
+        // As on a device, a method without one ignores the argument.
+        () = msg_send(env, (this, sel));
+    }
+}
+
 fn method_signature(env: &mut Environment, class: Class, sel: SEL) -> id {
     if !env.objc.class_has_method(class, sel) {
         return nil;
@@ -424,14 +439,7 @@ forUndefinedKey:(id)key { // NSString*
 - (())performSelectorOnMainThread:(SEL)sel withObject:(id)arg waitUntilDone:(bool)wait {
     log_dbg!("performSelectorOnMainThread:{} withObject:{:?} waitUntilDone:{}", sel.as_str(&env.mem), arg, wait);
     if wait && env.current_thread == 0 {
-        if sel.as_str(&env.mem).ends_with(':') {
-            // Like performSelector:withObject:, the method may take a
-            // non-object argument.
-            () = msg_send_no_type_checking(env, (this, sel, arg));
-        } else {
-            // As on a device, a method without one ignores the argument.
-            () = msg_send(env, (this, sel));
-        }
+        perform_now(env, this, sel, arg);
         return;
     }
     if env.bundle.bundle_identifier().starts_with("com.gameloft.POP") && (sel == env.objc.lookup_selector("startMovie:").unwrap() || sel == env.objc.lookup_selector("stopMovie").unwrap()) && wait {
@@ -479,6 +487,25 @@ forUndefinedKey:(id)key { // NSString*
     }
 
     let run_loop: id = msg_class![env; NSRunLoop mainRunLoop];
+    let sem = add_perform_request(env, run_loop, this, sel, arg, None, wait);
+    if wait {
+        sem_wait(env, sem);
+        host_destroy_semaphore(env, sem);
+    }
+}
+
+- (())performSelector:(SEL)sel
+             onThread:(id)thread // NSThread*
+           withObject:(id)arg
+        waitUntilDone:(bool)wait {
+    let Some(thread_id) = thread_id_for_ns_thread(env, thread) else {
+        panic!("performSelector:onThread: for a thread that isn't running");
+    };
+    if wait && thread_id == env.current_thread {
+        perform_now(env, this, sel, arg);
+        return;
+    }
+    let run_loop = run_loop_for_thread_id(env, thread_id);
     let sem = add_perform_request(env, run_loop, this, sel, arg, None, wait);
     if wait {
         sem_wait(env, sem);

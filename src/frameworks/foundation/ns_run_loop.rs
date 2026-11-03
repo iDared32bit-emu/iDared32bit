@@ -529,6 +529,12 @@ pub fn run_run_loop(
     }
 }
 
+/// The run loop of a thread, made if it doesn't have one yet.
+pub(super) fn run_loop_for_thread_id(env: &mut Environment, thread_id: ThreadId) -> id {
+    let class = env.objc.get_known_class("NSRunLoop", &mut env.mem);
+    run_loop_for_thread(env, class, thread_id)
+}
+
 /// Helper method for `mainRunLoop` and `currentRunLoop` NSThread class methods
 fn run_loop_for_thread(env: &mut Environment, this: Class, thread_id: ThreadId) -> id {
     if env.threads[thread_id]

@@ -274,7 +274,7 @@ type NSThreadRef = CFTypeRef;
 /// The touchHLE thread an `NSThread` is for, if it has one: once it's been
 /// started, or, for a thread not started by `NSThread`, once `currentThread`
 /// has been called on it.
-fn thread_id_for_ns_thread(env: &mut Environment, ns_thread: id) -> Option<ThreadId> {
+pub(super) fn thread_id_for_ns_thread(env: &mut Environment, ns_thread: id) -> Option<ThreadId> {
     let pthread = State::get(env)
         .ns_threads
         .iter()
