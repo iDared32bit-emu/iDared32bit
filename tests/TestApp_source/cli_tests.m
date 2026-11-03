@@ -669,6 +669,27 @@ int test_NSObject_self() {
   return result == obj ? 0 : -2;
 }
 
+int test_NSData_description() {
+  NSAutoreleasePool *pool = [NSAutoreleasePool new];
+  int res = 0;
+  NSData *data = [NSData dataWithBytes:"\x01\xabHello" length:7];
+  // The iPhone OS format. macOS 10.15 and later use a different one.
+#ifdef DEFINE_ME_WHEN_BUILDING_ON_MACOS
+  if ([data description] == nil)
+    res = -1;
+#else
+  if (![[data description]
+          isEqualToString:[NSString stringWithUTF8String:"<01ab4865 6c6c6f>"]])
+    res = -1;
+  NSData *empty = [NSData dataWithBytes:"" length:0];
+  if (![[empty description]
+          isEqualToString:[NSString stringWithUTF8String:"<>"]])
+    res = -2;
+#endif
+  [pool drain];
+  return res;
+}
+
 int test_CC_SHA256() {
   // SHA-256 of "hello world"
   const unsigned char expected[CC_SHA256_DIGEST_LENGTH] = {
@@ -8115,6 +8136,7 @@ struct {
     FUNC_DEF(test_qsort),
     FUNC_DEF(test_vsnprintf),
     FUNC_DEF(test_NSObject_self),
+    FUNC_DEF(test_NSData_description),
     FUNC_DEF(test_CC_SHA256),
     FUNC_DEF(test_CCCrypt),
     FUNC_DEF(test_CCHmac),

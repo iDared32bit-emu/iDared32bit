@@ -299,6 +299,8 @@ typedef enum {
 
 @interface NSData : NSObject
 + (id)dataWithContentsOfURL:(NSURL *)url;
++ (instancetype)dataWithBytes:(const void *)bytes length:(NSUInteger)length;
+- (NSString *)description;
 @end
 
 @interface NSCoder : NSObject

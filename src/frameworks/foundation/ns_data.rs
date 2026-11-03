@@ -5,7 +5,7 @@
  */
 //! `NSData` and `NSMutableData`.
 
-use super::ns_string::to_rust_string;
+use super::ns_string::{from_rust_string, to_rust_string};
 use super::{NSRange, NSUInteger};
 use crate::frameworks::foundation::ns_keyed_unarchiver::decode_current_data;
 use crate::fs::GuestPath;
@@ -182,6 +182,26 @@ pub const CLASSES: ClassExports = objc_classes! {
         env.mem.bytes_at(host_object.bytes.cast(), host_object.length)
     };
     env.fs.write(GuestPath::new(&file), slice).is_ok()
+}
+
+// The bytes in hex, in groups of four, e.g. "<48656c6c 6f>".
+- (id)description {
+    let host_object = env.objc.borrow::<NSDataHostObject>(this);
+    let slice = if host_object.length == 0 {
+        &[]
+    } else {
+        env.mem.bytes_at(host_object.bytes.cast(), host_object.length)
+    };
+    let mut desc = String::from("<");
+    for (i, byte) in slice.iter().enumerate() {
+        if i > 0 && i % 4 == 0 {
+            desc.push(' ');
+        }
+        desc.push_str(&format!("{byte:02x}"));
+    }
+    desc.push('>');
+    let desc = from_rust_string(env, desc);
+    autorelease(env, desc)
 }
 
 - (())dealloc {
