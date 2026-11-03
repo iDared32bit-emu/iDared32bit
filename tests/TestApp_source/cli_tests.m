@@ -2441,6 +2441,67 @@ int test_NSThread_isExecuting_isFinished() {
   return 0;
 }
 
+int test_NSCalendar() {
+  NSCalendar *calendar =
+      [[NSCalendar alloc] initWithCalendarIdentifier:NSGregorianCalendar];
+  [calendar
+      setTimeZone:[NSTimeZone
+                      timeZoneWithName:[NSString stringWithUTF8String:"GMT"]]];
+
+  // 2026-11-03 12:34:56, a Tuesday.
+  NSDateComponents *components = [[NSDateComponents alloc] init];
+  [components setYear:2026];
+  [components setMonth:11];
+  [components setDay:3];
+  [components setHour:12];
+  [components setMinute:34];
+  [components setSecond:56];
+  NSDate *date = [calendar dateFromComponents:components];
+  [components release];
+  if ([date timeIntervalSinceReferenceDate] != 815402096)
+    return -1;
+  NSUInteger units = NSYearCalendarUnit | NSMonthCalendarUnit |
+                     NSDayCalendarUnit | NSHourCalendarUnit |
+                     NSMinuteCalendarUnit | NSSecondCalendarUnit |
+                     NSWeekdayCalendarUnit;
+  components = [calendar components:units fromDate:date];
+  if ([components year] != 2026 || [components month] != 11 ||
+      [components day] != 3 || [components hour] != 12 ||
+      [components minute] != 34 || [components second] != 56 ||
+      [components weekday] != 3)
+    return -2;
+
+  // A month after January 31 is the end of February.
+  NSDate *jan31 = [NSDate dateWithTimeIntervalSinceReferenceDate:791510400];
+  NSDateComponents *month = [[NSDateComponents alloc] init];
+  [month setMonth:1];
+  NSDate *feb28 = [calendar dateByAddingComponents:month
+                                            toDate:jan31
+                                           options:0];
+  [month release];
+  if ([feb28 timeIntervalSinceReferenceDate] != 793929600)
+    return -3;
+
+  // From January 31 to March 1 is a month and a day.
+  NSDate *mar1 = [NSDate dateWithTimeIntervalSinceReferenceDate:794016000];
+  components = [calendar components:NSMonthCalendarUnit | NSDayCalendarUnit
+                           fromDate:jan31
+                             toDate:mar1
+                            options:0];
+  if ([components month] != 1 || [components day] != 1)
+    return -4;
+
+  // After 2038.
+  NSDate *later = [NSDate dateWithTimeIntervalSinceReferenceDate:1245024000];
+  components = [calendar components:units fromDate:later];
+  if ([components year] != 2040 || [components month] != 6 ||
+      [components day] != 15)
+    return -5;
+
+  [calendar release];
+  return 0;
+}
+
 static int operation_log[8];
 static volatile int operation_log_count;
 
@@ -7754,6 +7815,7 @@ struct {
     FUNC_DEF(test_NSThread_isExecuting_isFinished),
     FUNC_DEF(test_NSThread_exit_pthread_exit),
     FUNC_DEF(test_NSOperationQueue),
+    FUNC_DEF(test_NSCalendar),
     FUNC_DEF(test_CFMutableDictionary_NullCallbacks),
     FUNC_DEF(test_CFMutableDictionary_CustomCallbacks_PrimitiveTypes),
     FUNC_DEF(test_CFMutableDictionary_CustomCallbacks_CFTypes),

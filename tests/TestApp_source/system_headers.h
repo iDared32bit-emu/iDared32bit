@@ -347,6 +347,57 @@ SEL NSSelectorFromString(NSString *);
 - (BOOL)isFinished;
 @end
 
+@interface NSDate : NSObject
++ (instancetype)dateWithTimeIntervalSinceReferenceDate:(NSTimeInterval)secs;
+- (NSTimeInterval)timeIntervalSinceReferenceDate;
+@end
+
+@interface NSTimeZone : NSObject
++ (instancetype)timeZoneWithName:(NSString *)name;
+@end
+
+enum {
+  NSYearCalendarUnit = 1 << 2,
+  NSMonthCalendarUnit = 1 << 3,
+  NSDayCalendarUnit = 1 << 4,
+  NSHourCalendarUnit = 1 << 5,
+  NSMinuteCalendarUnit = 1 << 6,
+  NSSecondCalendarUnit = 1 << 7,
+  NSWeekdayCalendarUnit = 1 << 9,
+};
+
+@interface NSDateComponents : NSObject
+- (NSInteger)year;
+- (NSInteger)month;
+- (NSInteger)day;
+- (NSInteger)hour;
+- (NSInteger)minute;
+- (NSInteger)second;
+- (NSInteger)weekday;
+- (void)setYear:(NSInteger)value;
+- (void)setMonth:(NSInteger)value;
+- (void)setDay:(NSInteger)value;
+- (void)setHour:(NSInteger)value;
+- (void)setMinute:(NSInteger)value;
+- (void)setSecond:(NSInteger)value;
+@end
+
+extern NSString *const NSGregorianCalendar;
+
+@interface NSCalendar : NSObject
+- (instancetype)initWithCalendarIdentifier:(NSString *)identifier;
+- (void)setTimeZone:(NSTimeZone *)timeZone;
+- (NSDateComponents *)components:(NSUInteger)units fromDate:(NSDate *)date;
+- (NSDate *)dateFromComponents:(NSDateComponents *)components;
+- (NSDate *)dateByAddingComponents:(NSDateComponents *)components
+                            toDate:(NSDate *)date
+                           options:(NSUInteger)options;
+- (NSDateComponents *)components:(NSUInteger)units
+                        fromDate:(NSDate *)start
+                          toDate:(NSDate *)end
+                         options:(NSUInteger)options;
+@end
+
 @interface NSOperation : NSObject
 - (void)start;
 - (void)main;
