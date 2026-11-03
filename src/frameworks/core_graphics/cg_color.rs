@@ -13,7 +13,7 @@ use crate::frameworks::core_graphics::cg_color_space::{
     kCGColorSpaceGenericRGB, CGColorSpaceHostObject, CGColorSpaceRef,
 };
 use crate::frameworks::core_graphics::CGFloat;
-use crate::mem::MutPtr;
+use crate::mem::{GuestUSize, MutPtr, Ptr};
 use crate::objc::{objc_classes, ClassExports, HostObject, ObjC};
 use crate::Environment;
 
@@ -25,6 +25,15 @@ pub const CLASSES: ClassExports = objc_classes! {
 // those are just Objective-C types, so we need a class for it, but its name is
 // not visible anywhere.
 @implementation _touchHLE_CGColor: NSObject
+
+- (())dealloc {
+    let components = env.objc.borrow::<CGColorHostObject>(this).components;
+    if !components.is_null() {
+        env.mem.free(components.cast());
+    }
+    env.objc.dealloc_object(this, &mut env.mem)
+}
+
 @end
 
 };
@@ -38,6 +47,9 @@ pub struct CGColorHostObject {
     pub g: CGFloat,
     pub b: CGFloat,
     pub a: CGFloat,
+    /// For `CGColorGetComponents`, made when it's first called. Only the
+    /// color object itself frees it: copies of this are just values.
+    pub components: MutPtr<CGFloat>,
 }
 impl HostObject for CGColorHostObject {}
 // Implemented to aid animation code.
@@ -52,6 +64,7 @@ impl Mul<f32> for CGColorHostObject {
             g: self.g * rhs,
             b: self.b * rhs,
             a: self.a * rhs,
+            components: Ptr::null(),
         }
     }
 }
@@ -65,6 +78,7 @@ impl Add<CGColorHostObject> for CGColorHostObject {
             g: self.g + rhs.g,
             b: self.b + rhs.b,
             a: self.a + rhs.a,
+            components: Ptr::null(),
         }
     }
 }
@@ -78,6 +92,7 @@ impl Sub<CGColorHostObject> for CGColorHostObject {
             g: self.g - rhs.g,
             b: self.b - rhs.b,
             a: self.a - rhs.a,
+            components: Ptr::null(),
         }
     }
 }
@@ -120,6 +135,26 @@ fn CGColorCreateGenericRGB(
     from_rgba(env, (r, g, b, a))
 }
 
+/// Colors are always RGB here, so this is red, green, blue and alpha.
+fn CGColorGetNumberOfComponents(_env: &mut Environment, _color: CGColorRef) -> GuestUSize {
+    4
+}
+fn CGColorGetComponents(env: &mut Environment, color: CGColorRef) -> MutPtr<CGFloat> {
+    let host_obj = *env.objc.borrow::<CGColorHostObject>(color);
+    if !host_obj.components.is_null() {
+        return host_obj.components;
+    }
+    let components: MutPtr<CGFloat> = env.mem.alloc(4 * 4).cast();
+    for (i, value) in [host_obj.r, host_obj.g, host_obj.b, host_obj.a]
+        .into_iter()
+        .enumerate()
+    {
+        env.mem.write(components + i as GuestUSize, value);
+    }
+    env.objc.borrow_mut::<CGColorHostObject>(color).components = components;
+    components
+}
+
 fn CGColorEqualToColor(env: &mut Environment, a: CGColorRef, b: CGColorRef) -> bool {
     to_rgba(&env.objc, a) == to_rgba(&env.objc, b)
 }
@@ -130,6 +165,8 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(CGColorCreate(_, _)),
     export_c_func!(CGColorCreateGenericRGB(_, _, _, _)),
     export_c_func!(CGColorEqualToColor(_, _)),
+    export_c_func!(CGColorGetNumberOfComponents(_)),
+    export_c_func!(CGColorGetComponents(_)),
 ];
 
 /// Shortcut for use by `UIColor`: directly construct a `CGColor` instance from
@@ -142,6 +179,7 @@ pub fn from_rgba(env: &mut Environment, rgba: (CGFloat, CGFloat, CGFloat, CGFloa
         g,
         b,
         a,
+        components: Ptr::null(),
     });
     let class = env.objc.get_known_class("_touchHLE_CGColor", &mut env.mem);
     env.objc.alloc_object(class, host_obj, &mut env.mem)
