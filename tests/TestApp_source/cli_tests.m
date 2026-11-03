@@ -4272,6 +4272,20 @@ int test_NSDictionary_values() {
   if (res == 0 && count != 3)
     res = -3;
 
+  count = 0;
+  e = [dict keyEnumerator];
+  for (id key; (key = [e nextObject]);)
+    count += [dict objectForKey:key] != nil;
+  if (res == 0 && count != 3)
+    res = -4;
+
+  NSMutableDictionary *mutable = [NSMutableDictionary new];
+  [mutable setObject:x forKey:a];
+  e = [mutable keyEnumerator];
+  if (res == 0 && ([e nextObject] != a || [e nextObject]))
+    res = -5;
+  [mutable release];
+
   [pool drain];
   return res;
 }

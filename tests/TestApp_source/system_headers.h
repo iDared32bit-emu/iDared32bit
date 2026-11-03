@@ -149,9 +149,11 @@ void (*method_getImplementation(Method m))(void);
 - (NSArray<ObjectType> *)allValues;
 - (NSArray<KeyType> *)allKeysForObject:(ObjectType)anObject;
 - (id)objectEnumerator;
+- (id)keyEnumerator;
 @end
 
 @interface NSMutableDictionary<KeyType, ObjectType> : NSDictionary
+- (void)setObject:(ObjectType)anObject forKey:(KeyType)aKey;
 @end
 
 @interface NSSet<ObjectType> : NSObject

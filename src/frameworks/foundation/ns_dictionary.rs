@@ -708,6 +708,11 @@ pub const CLASSES: ClassExports = objc_classes! {
     msg![env; values objectEnumerator]
 }
 
+- (id)keyEnumerator { // NSEnumerator*
+    let keys: id = msg![env; this allKeys];
+    msg![env; keys objectEnumerator]
+}
+
 // NSFastEnumeration implementation
 - (NSUInteger)countByEnumeratingWithState:(MutPtr<NSFastEnumerationState>)state
                                   objects:(MutPtr<id>)stackbuf
@@ -917,6 +922,11 @@ pub const CLASSES: ClassExports = objc_classes! {
 - (id)objectEnumerator { // NSEnumerator*
     let values: id = msg![env; this allValues];
     msg![env; values objectEnumerator]
+}
+
+- (id)keyEnumerator { // NSEnumerator*
+    let keys: id = msg![env; this allKeys];
+    msg![env; keys objectEnumerator]
 }
 
 @end
