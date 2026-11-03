@@ -155,11 +155,12 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 - (id)initWithTarget:(id)target selector:(SEL)sel object:(id)arg {
     let this: id  = msg_super![env; this init];
-    let target = retain(env, target);
-    let arg = retain(env, arg);
     if !env.objc.object_has_method(env.mem.as_mut(), target, sel) {
+        release(env, this);
         return nil;
     }
+    let target = retain(env, target);
+    let arg = retain(env, arg);
     let host_object = env.objc.borrow_mut::<NSInvocationOperationHostObject>(this);
     host_object.target = target;
     host_object.sel = Some(sel);
@@ -174,11 +175,13 @@ pub const CLASSES: ClassExports = objc_classes! {
     let sel = host_object.sel.unwrap();
     let arg = host_object.arg;
     log_dbg!("Running NSInvocationOperation [{:?} {:?}({}) {:?}]", target, sel, sel.as_str(env.mem.as_mut()),  arg);
-    if arg.is_null() {
-        let args = (target, sel);
+    // Whether there's an argument depends on the selector, not on whether
+    // it's nil: a method that takes one gets nil, not garbage.
+    if sel.as_str(env.mem.as_mut()).contains(':') {
+        let args = (target, sel, arg);
         let _: () = crate::objc::msg_send(env, args);
     } else {
-        let args = (target, sel, arg);
+        let args = (target, sel);
         let _: () = crate::objc::msg_send(env, args);
     }
 }
@@ -189,7 +192,8 @@ pub const CLASSES: ClassExports = objc_classes! {
     let arg = host_object.arg;
     release(env, target);
     release(env, arg);
-    env.objc.dealloc_object(this, env.mem.as_mut());
+    // NSOperation's releases the dependencies.
+    msg_super![env; this dealloc]
 }
 
 @end
