@@ -10,13 +10,15 @@
 
 use std::time::Duration;
 
-use super::NSInteger;
+use super::{ns_array, NSInteger, NSUInteger};
 use crate::abi::GuestFunction;
 use crate::dyld::HostFunction;
 use crate::environment::Environment;
 use crate::mem::MutVoidPtr;
 use crate::msg_class;
-use crate::objc::{id, msg, objc_classes, release, retain, ClassExports, HostObject, NSZonePtr};
+use crate::objc::{
+    autorelease, id, msg, objc_classes, release, retain, ClassExports, HostObject, NSZonePtr,
+};
 
 pub struct State {
     helper_guest_func: GuestFunction,
@@ -95,6 +97,26 @@ pub const CLASSES: ClassExports = objc_classes! {
         this.cast(),
         crate::mem::Mem::SECONDARY_THREAD_DEFAULT_STACK_SIZE,
     );
+}
+
+- (())cancelAllOperations {
+    let operations = env.objc.borrow::<NSOperationQueueHostObject>(this).operations.clone();
+    for operation in operations {
+        let _: () = msg![env; operation cancel];
+    }
+}
+
+// Those that have not finished yet, as on iOS.
+- (id)operations {
+    let operations = env.objc.borrow::<NSOperationQueueHostObject>(this).operations.clone();
+    for &operation in &operations {
+        retain(env, operation);
+    }
+    let array = ns_array::from_vec(env, operations);
+    autorelease(env, array)
+}
+- (NSUInteger)operationCount {
+    env.objc.borrow::<NSOperationQueueHostObject>(this).operations.len() as NSUInteger
 }
 
 - (NSInteger)maxConcurrentOperationCount {
