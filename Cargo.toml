@@ -85,6 +85,9 @@ nibarchive = "0.1.0"
 libc = "0.2.180"
 corosensei = "0.3.2"
 uuid = { version = "1.2.2", default-features = false, features = ["v4"] }
+ecb = { version = "0.1.2", features = ["alloc"] }
+aes = "0.8.4"
+hmac = "0.12.1"
 
 [patch.crates-io]
 cmake = { git = 'https://github.com/iDared32bit-emu/cmake-rs', branch = "fix-iphone-build" }

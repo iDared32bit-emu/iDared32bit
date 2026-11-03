@@ -101,9 +101,11 @@ const BSD_LICENSE_CRATES: &[(&str, &str)] = &[
     ("tiny-skia", "BSD-3-Clause"),
     ("tiny-skia-path", "BSD-3-Clause"),
     ("arrayref", "BSD-2-Clause"),
+    ("subtle", "BSD-3-Clause"),
 ];
 const BSD_3_CLAUSE_TINY_SKIA: &str = include_str!("licenses/BSD-3-Clause-tiny-skia.txt");
 const BSD_2_CLAUSE_ARRAYREF: &str = include_str!("licenses/BSD-2-Clause-arrayref.txt");
+const BSD_3_CLAUSE_SUBTLE: &str = include_str!("licenses/BSD-3-Clause-subtle.txt");
 const SDL2_SUN_LIBM: &str = include_str!("licenses/Sun-libm.txt");
 const SDL2_X11_IMKSTOUCS: &str = include_str!("licenses/MIT-imKStoUCS.txt");
 
@@ -371,6 +373,13 @@ fn print(out: &mut String, resources_are_external_files: bool) -> Result<(), std
          (BSD-2-Clause):\n",
     )?;
     writeln!(out, "{}", BSD_2_CLAUSE_ARRAYREF.trim_end())?;
+    divider(out)?;
+    writeln!(
+        out,
+        "\nThe Rust library subtle is licensed under the following license\n\
+         (BSD-3-Clause):\n",
+    )?;
+    writeln!(out, "{}", BSD_3_CLAUSE_SUBTLE.trim_end())?;
     divider(out)?;
     writeln!(out, "{MGBA_DESCRIPTION}")?;
     divider(out)?;

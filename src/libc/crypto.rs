@@ -4,11 +4,18 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 //! CommonCrypto and friends
+//!
+//! Documented in its [man pages.](https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man3/CC_crypto.3cc.html#//apple_ref/doc/man/3cc/CC_crypto)
+//! Also [open source.](https://github.com/apple-oss-distributions/CommonCrypto)
+#![allow(non_upper_case_globals)] // Lots of Apple constants begin with "k"
 
 use crate::dyld::FunctionExports;
-use crate::mem::{ConstVoidPtr, MutPtr, SafeRead};
+use crate::mem::{ConstVoidPtr, GuestUSize, MutPtr, MutVoidPtr, SafeRead};
 use crate::{export_c_func, Environment};
+use aes::cipher::block_padding::NoPadding;
+use aes::cipher::{block_padding::Pkcs7, BlockEncryptMut, KeyInit};
 use digest::Digest;
+use hmac::Mac;
 use md5::Md5;
 use sha1::Sha1;
 use sha2::digest::generic_array::GenericArray;
@@ -55,6 +62,24 @@ fn CC_MD5_Final(env: &mut Environment, md: MutPtr<u8>, ctx: MutPtr<CC_MD5_CTX>) 
     env.mem.bytes_at_mut(md, 16).copy_from_slice(&digest[..]);
     1 // success
 }
+
+type HmacSha1 = hmac::Hmac<Sha1>;
+type Aes128EcbEnc = ecb::Encryptor<aes::Aes128>;
+
+type CCHmacAlgorithm = u32;
+pub const kCCHmacAlgSHA1: CCHmacAlgorithm = 0;
+
+type CCOperation = u32;
+pub const kCCEncrypt: CCOperation = 0;
+type CCAlgorithm = u32;
+// Also used for AES of other sizes.
+pub const kCCAlgorithmAES128: CCAlgorithm = 0;
+type CCOptions = u32;
+pub const kCCOptionPKCS7Padding: CCOptions = 1;
+pub const kCCOptionECBMode: CCOptions = 2;
+type CCCryptorStatus = i32;
+pub const kCCBufferTooSmall: CCCryptorStatus = -4301;
+pub const kCCAlignmentError: CCCryptorStatus = -4303;
 
 fn CC_MD5(env: &mut Environment, data: ConstVoidPtr, len: u32, md: MutPtr<u8>) -> MutPtr<u8> {
     let mut hasher = Md5::new();
@@ -165,6 +190,95 @@ fn CC_SHA256_Final(env: &mut Environment, md: MutPtr<u8>, c: MutPtr<CC_SHA256_CT
     1
 }
 
+fn CCHmac(
+    env: &mut Environment,
+    algorithm: CCHmacAlgorithm,
+    key: ConstVoidPtr,
+    key_length: GuestUSize,
+    data: ConstVoidPtr,
+    data_length: GuestUSize,
+    mac_out: MutVoidPtr,
+) {
+    match algorithm {
+        kCCHmacAlgSHA1 => {
+            let mut mac =
+                <HmacSha1 as Mac>::new_from_slice(env.mem.bytes_at(key.cast(), key_length))
+                    .unwrap();
+            mac.update(env.mem.bytes_at(data.cast(), data_length));
+            let res = mac.finalize().into_bytes();
+            let out = env
+                .mem
+                .bytes_at_mut(mac_out.cast(), res.len().try_into().unwrap());
+            out.copy_from_slice(res.as_slice());
+        }
+        _ => {
+            panic!("Unsupported algorithm {algorithm} for CCHmac(...)!");
+        }
+    }
+}
+
+// TODO: Write tests
+#[allow(clippy::too_many_arguments)]
+fn CCCrypt(
+    env: &mut Environment,
+    op: CCOperation,
+    alg: CCAlgorithm,
+    options: CCOptions,
+    key: ConstVoidPtr,
+    key_length: GuestUSize,
+    _iv: ConstVoidPtr,
+    data_in: ConstVoidPtr,
+    data_in_length: GuestUSize,
+    data_out: MutVoidPtr,
+    data_out_available: GuestUSize,
+    data_out_moved: MutPtr<GuestUSize>,
+) -> CCCryptorStatus {
+    match (alg, op) {
+        (kCCAlgorithmAES128, kCCEncrypt) => {
+            assert_eq!(
+                options & kCCOptionECBMode,
+                kCCOptionECBMode,
+                "Only ECB is supported for CCCrypt(...)!"
+            );
+            assert_eq!(
+                key_length, 16,
+                "Only AES-128 is supported for CCCrypt(...)!"
+            );
+            let out_size = if options & kCCOptionPKCS7Padding == kCCOptionPKCS7Padding {
+                // The padding includes an extra block if the input is a
+                // multiple of the block size.
+                key_length + data_in_length / data_out_available * key_length
+            } else {
+                data_in_length
+            };
+            if data_out_available < out_size {
+                log!("Output buffer too small in CCCrypt(...) AES encryption (in size: {data_in_length} out size: {data_out_available}), returning kCCBufferTooSmall");
+                env.mem.write(data_out_moved, data_in_length);
+                return kCCBufferTooSmall;
+            }
+            let key_slice = env.mem.bytes_at(key.cast(), key_length);
+            let in_slice = env.mem.bytes_at(data_in.cast(), data_in_length);
+            let enc_vec = if options & kCCOptionPKCS7Padding == 0 {
+                if !data_in_length.is_multiple_of(key_length) {
+                    log!("Alignment error in CCCrypt(...) AES encryption with no padding specified, returning kCCAlignmentError.");
+                    return kCCAlignmentError;
+                }
+                Aes128EcbEnc::new(key_slice.into()).encrypt_padded_vec_mut::<NoPadding>(in_slice)
+            } else {
+                Aes128EcbEnc::new(key_slice.into()).encrypt_padded_vec_mut::<Pkcs7>(in_slice)
+            };
+
+            log_dbg!("CCCrypt([AES128 encrypt] key: {key_slice:?}, data_in: {in_slice:?}, data_out: {enc_vec:?}) ");
+            let out_slice = env.mem.bytes_at_mut(data_out.cast(), out_size);
+            out_slice.copy_from_slice(enc_vec.as_slice());
+        }
+        _ => {
+            panic!("Unsupported algorithm & operation ({alg}, {op}) for CCCrypt(...)!");
+        }
+    }
+    0
+}
+
 pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(CC_MD5_Init(_)),
     export_c_func!(CC_MD5_Update(_, _, _)),
@@ -175,4 +289,6 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(CC_SHA256_Init(_)),
     export_c_func!(CC_SHA256_Update(_, _, _)),
     export_c_func!(CC_SHA256_Final(_, _)),
+    export_c_func!(CCCrypt(_, _, _, _, _, _, _, _, _, _, _)),
+    export_c_func!(CCHmac(_, _, _, _, _, _)),
 ];
