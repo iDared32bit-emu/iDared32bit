@@ -30,7 +30,7 @@ use crate::mach_o::MachO;
 use crate::mem::{guest_size_of, ConstPtr, ConstVoidPtr, GuestUSize, Mem, MutPtr, Ptr, SafeRead};
 use crate::objc::{
     autorelease, id, msg, msg_class, nil, objc_classes, release, retain, Class, ClassExports,
-    HostObject, NSZonePtr, ObjC,
+    HostObject, NSZonePtr, ObjC, TrivialHostObject,
 };
 use crate::{fs, Environment};
 use encoding_rs::{SHIFT_JIS, WINDOWS_1252};
@@ -398,9 +398,11 @@ pub const CLASSES: ClassExports = objc_classes! {
 @implementation NSString: NSObject
 
 + (id)allocWithZone:(NSZonePtr)zone {
-    // NSString might be subclassed by something which needs allocWithZone:
-    // to have the normal behaviour. Unimplemented: call superclass alloc then.
-    assert!(this == env.objc.get_known_class("NSString", &mut env.mem));
+    // A subclass from the game stores its own contents, so it gets the
+    // normal behaviour, like NSObject's.
+    if this != env.objc.get_known_class("NSString", &mut env.mem) {
+        return env.objc.alloc_object(this, Box::new(TrivialHostObject), &mut env.mem);
+    }
     msg_class![env; _touchHLE_NSString allocWithZone:zone]
 }
 
@@ -739,8 +741,8 @@ pub const CLASSES: ClassExports = objc_classes! {
 
     assert_ne!(other, nil);
 
-    // TODO: support foreign subclasses (perhaps via a helper function that
-    // copies the string first)
+    let this = ours(env, this);
+    let other = ours(env, other);
     let mut a_iter = env.objc.borrow::<StringHostObject>(this).iter_code_units().peekable();
     let mut b_iter = env.objc.borrow::<StringHostObject>(other).iter_code_units().peekable();
 
@@ -839,8 +841,8 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (id)componentsSeparatedByString:(id)separator { // NSString*
-    // TODO: support foreign subclasses (perhaps via a helper function that
-    // copies the string first)
+    let this = ours(env, this);
+    let separator = ours(env, separator);
     let mut main_iter = env.objc.borrow::<StringHostObject>(this)
         .iter_code_units();
     let sep_iter = env.objc.borrow::<StringHostObject>(separator)
@@ -887,6 +889,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (())getCharacters:(MutPtr<unichar>)buffer {
+    let this = ours(env, this);
     let host_object = env.objc.borrow_mut::<StringHostObject>(this);
 
     // this conversion maybe not most optimal heuristic
@@ -1388,10 +1391,11 @@ pub const CLASSES: ClassExports = objc_classes! {
 @implementation NSMutableString: NSString
 
 + (id)allocWithZone:(NSZonePtr)zone {
-    // NSMutableString might be subclassed by something
-    // which needs allocWithZone: to have the normal behaviour.
-    // Unimplemented: call superclass alloc then.
-    assert!(this == env.objc.get_known_class("NSMutableString", &mut env.mem));
+    // A subclass from the game stores its own contents, so it gets the
+    // normal behaviour, like NSObject's.
+    if this != env.objc.get_known_class("NSMutableString", &mut env.mem) {
+        return env.objc.alloc_object(this, Box::new(TrivialHostObject), &mut env.mem);
+    }
     msg_class![env; _touchHLE_NSMutableString allocWithZone:zone]
 }
 
@@ -1947,6 +1951,28 @@ pub fn from_u16_vec(env: &mut Environment, from: Vec<u16>) -> id {
     string
 }
 
+/// Code here reads our own string storage. A string from a game's own NSString
+/// subclass has none, so it's copied into one of ours (autoreleased) through
+/// the methods every subclass has: `length` and `characterAtIndex:`.
+fn ours(env: &mut Environment, string: id) -> id {
+    if string == nil
+        || env
+            .objc
+            .get_host_object(string)
+            .unwrap()
+            .as_any()
+            .is::<StringHostObject>()
+    {
+        return string;
+    }
+    let length: NSUInteger = msg![env; string length];
+    let utf16: Vec<u16> = (0..length)
+        .map(|i| msg![env; string characterAtIndex:i])
+        .collect();
+    let copy = from_u16_vec(env, utf16);
+    autorelease(env, copy)
+}
+
 /// Shortcut for host code, provides a view of a string in UTF-8.
 /// Warning: This may panic if the string is not valid UTF-16!
 ///
@@ -1954,7 +1980,7 @@ pub fn from_u16_vec(env: &mut Environment, from: Vec<u16>) -> id {
 ///
 /// TODO: Try to avoid converting from UTF-16 in more cases.
 pub fn to_rust_string(env: &mut Environment, string: id) -> Cow<'static, str> {
-    // TODO: handle foreign subclasses of NSString
+    let string = ours(env, string);
     env.objc
         .borrow_mut::<StringHostObject>(string)
         .to_utf8()
@@ -1968,7 +1994,7 @@ pub fn for_each_code_unit<F>(env: &mut Environment, string: id, mut f: F)
 where
     F: FnMut(NSUInteger, u16),
 {
-    // TODO: handle foreign subclasses of NSString
+    let string = ours(env, string);
     let mut idx: NSUInteger = 0;
     env.objc
         .borrow::<StringHostObject>(string)
@@ -2236,8 +2262,9 @@ fn string_by_replacing_occurrences_inner(
     replacement: id, // NSString *
     options: NSStringCompareOptions,
 ) -> id {
-    // TODO: support foreign subclasses (perhaps via a helper function that
-    // copies the string first)
+    let source = ours(env, source);
+    let target = ours(env, target);
+    let replacement = ours(env, replacement);
     let mut main_iter = env
         .objc
         .borrow::<StringHostObject>(source)

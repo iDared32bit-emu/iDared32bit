@@ -22,7 +22,7 @@ use crate::libc::stdlib::qsort::qsort_generic;
 use crate::mem::{ConstPtr, MutPtr, MutVoidPtr, Ptr};
 use crate::objc::{
     autorelease, id, msg, msg_class, msg_send, nil, objc_classes, release, retain, Class,
-    ClassExports, HostObject, NSZonePtr, SEL,
+    ClassExports, HostObject, NSZonePtr, TrivialHostObject, SEL,
 };
 use crate::Environment;
 
@@ -53,9 +53,11 @@ pub const CLASSES: ClassExports = objc_classes! {
 @implementation NSArray: NSObject
 
 + (id)allocWithZone:(NSZonePtr)zone {
-    // NSArray might be subclassed by something which needs allocWithZone:
-    // to have the normal behaviour. Unimplemented: call superclass alloc then.
-    assert!(this == env.objc.get_known_class("NSArray", &mut env.mem));
+    // A subclass from the game stores its own contents, so it gets the
+    // normal behaviour, like NSObject's.
+    if this != env.objc.get_known_class("NSArray", &mut env.mem) {
+        return env.objc.alloc_object(this, Box::new(TrivialHostObject), &mut env.mem);
+    }
     msg_class![env; _touchHLE_NSArray allocWithZone:zone]
 }
 
@@ -268,9 +270,11 @@ pub const CLASSES: ClassExports = objc_classes! {
 @implementation NSMutableArray: NSArray
 
 + (id)allocWithZone:(NSZonePtr)zone {
-    // NSArray might be subclassed by something which needs allocWithZone:
-    // to have the normal behaviour. Unimplemented: call superclass alloc then.
-    assert!(this == env.objc.get_known_class("NSMutableArray", &mut env.mem));
+    // A subclass from the game stores its own contents, so it gets the
+    // normal behaviour, like NSObject's.
+    if this != env.objc.get_known_class("NSMutableArray", &mut env.mem) {
+        return env.objc.alloc_object(this, Box::new(TrivialHostObject), &mut env.mem);
+    }
     msg_class![env; _touchHLE_NSMutableArray allocWithZone:zone]
 }
 

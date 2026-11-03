@@ -134,6 +134,7 @@ void (*method_getImplementation(Method m))(void);
 - (instancetype)initWithObjects:(ObjectType)firstObj, ...;
 - (NSUInteger)count;
 - (ObjectType)objectAtIndex:(NSUInteger)index;
+- (BOOL)containsObject:(ObjectType)anObject;
 - (BOOL)isEqualToArray:(NSArray *)otherArray;
 @end
 
@@ -171,6 +172,8 @@ void (*method_getImplementation(Method m))(void);
 
 @interface NSSet<ObjectType> : NSObject
 - (ObjectType)anyObject;
+- (NSUInteger)count;
+- (BOOL)containsObject:(ObjectType)anObject;
 @end
 
 typedef enum {
@@ -201,6 +204,9 @@ typedef enum {
 - (NSComparisonResult)compare:(NSString *)other
                       options:(NSStringCompareOptions)mask;
 - (const char *)UTF8String;
+- (NSUInteger)length;
+- (unsigned short)characterAtIndex:(NSUInteger)index;
+- (NSArray *)componentsSeparatedByString:(NSString *)separator;
 @end
 @interface NSMutableString : NSString
 - (void)deleteCharactersInRange:(NSRange)range;

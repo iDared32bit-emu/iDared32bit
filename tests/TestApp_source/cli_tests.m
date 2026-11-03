@@ -4512,6 +4512,107 @@ int test_NSDictionary_subclass() {
   return res;
 }
 
+@interface CustomArray : NSArray {
+  id _items[2];
+}
+@end
+
+@implementation CustomArray
+- (instancetype)init {
+  if ((self = [super init])) {
+    _items[0] = [[NSString stringWithUTF8String:"a"] retain];
+    _items[1] = [[NSString stringWithUTF8String:"b"] retain];
+  }
+  return self;
+}
+- (NSUInteger)count {
+  return 2;
+}
+- (id)objectAtIndex:(NSUInteger)index {
+  return _items[index];
+}
+- (void)dealloc {
+  [_items[0] release];
+  [_items[1] release];
+  [super dealloc];
+}
+@end
+
+@interface CustomString : NSString
+@end
+
+@implementation CustomString
+- (NSUInteger)length {
+  return 5;
+}
+- (unsigned short)characterAtIndex:(NSUInteger)index {
+  return "a,b,c"[index];
+}
+@end
+
+@interface CustomSet : NSSet {
+  NSArray *_items;
+}
+@end
+
+@implementation CustomSet
+- (instancetype)init {
+  if ((self = [super init])) {
+    _items = [[NSArray
+        arrayWithObjects:[NSString stringWithUTF8String:"x"], nil] retain];
+  }
+  return self;
+}
+- (NSUInteger)count {
+  return [_items count];
+}
+- (id)member:(id)object {
+  return [_items containsObject:object] ? object : nil;
+}
+- (id)objectEnumerator {
+  return [_items objectEnumerator];
+}
+- (void)dealloc {
+  [_items release];
+  [super dealloc];
+}
+@end
+
+// Subclasses, as games make, with their own storage. Inherited methods must
+// work through their primitive methods.
+int test_class_cluster_subclasses() {
+  NSAutoreleasePool *pool = [NSAutoreleasePool new];
+  int res = 0;
+
+  CustomArray *array = [[CustomArray alloc] init];
+  if ([array class] != [CustomArray class] || [array count] != 2 ||
+      ![array containsObject:[NSString stringWithUTF8String:"b"]])
+    res = -1;
+  [array release];
+
+  CustomString *string = [[CustomString alloc] init];
+  NSString *plain = [NSString stringWithUTF8String:"a,b,c"];
+  if (res == 0 &&
+      ([string class] != [CustomString class] ||
+       ![string isEqualToString:plain] || ![plain isEqualToString:string] ||
+       [plain compare:string options:0] != NSOrderedSame ||
+       strcmp([string UTF8String], "a,b,c") != 0 ||
+       [[string componentsSeparatedByString:[NSString stringWithUTF8String:","]]
+           count] != 3))
+    res = -2;
+  [string release];
+
+  CustomSet *set = [[CustomSet alloc] init];
+  if (res == 0 && ([set class] != [CustomSet class] || [set count] != 1 ||
+                   ![set containsObject:[NSString stringWithUTF8String:"x"]] ||
+                   [set containsObject:[NSString stringWithUTF8String:"y"]]))
+    res = -3;
+  [set release];
+
+  [pool drain];
+  return res;
+}
+
 int test_NSDictionary_values() {
   NSAutoreleasePool *pool = [NSAutoreleasePool new];
   NSString *a = [NSString stringWithUTF8String:"a"];
@@ -8374,6 +8475,7 @@ struct {
     FUNC_DEF(test_NSRunLoop_runMode),
     FUNC_DEF(test_NSCalendar),
     FUNC_DEF(test_NSDictionary_subclass),
+    FUNC_DEF(test_class_cluster_subclasses),
     FUNC_DEF(test_NSDictionary_values),
     FUNC_DEF(test_CFMutableDictionary_NullCallbacks),
     FUNC_DEF(test_CFMutableDictionary_CustomCallbacks_PrimitiveTypes),

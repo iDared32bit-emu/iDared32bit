@@ -13,7 +13,8 @@ use crate::abi::DotDotDot;
 use crate::environment::Environment;
 use crate::mem::MutPtr;
 use crate::objc::{
-    autorelease, id, msg, msg_class, nil, objc_classes, retain, ClassExports, HostObject, NSZonePtr,
+    autorelease, id, msg, msg_class, nil, objc_classes, retain, ClassExports, HostObject,
+    NSZonePtr, TrivialHostObject,
 };
 
 /// Belongs to _touchHLE_NSSet
@@ -36,9 +37,11 @@ pub const CLASSES: ClassExports = objc_classes! {
 @implementation NSSet: NSObject
 
 + (id)allocWithZone:(NSZonePtr)zone {
-    // NSSet might be subclassed by something which needs allocWithZone:
-    // to have the normal behaviour. Unimplemented: call superclass alloc then.
-    assert!(this == env.objc.get_known_class("NSSet", &mut env.mem));
+    // A subclass from the game stores its own contents, so it gets the
+    // normal behaviour, like NSObject's.
+    if this != env.objc.get_known_class("NSSet", &mut env.mem) {
+        return env.objc.alloc_object(this, Box::new(TrivialHostObject), &mut env.mem);
+    }
     msg_class![env; _touchHLE_NSSet allocWithZone:zone]
 }
 
@@ -96,9 +99,11 @@ pub const CLASSES: ClassExports = objc_classes! {
 @implementation NSMutableSet: NSSet
 
 + (id)allocWithZone:(NSZonePtr)zone {
-    // NSSet might be subclassed by something which needs allocWithZone:
-    // to have the normal behaviour. Unimplemented: call superclass alloc then.
-    assert!(this == env.objc.get_known_class("NSMutableSet", &mut env.mem));
+    // A subclass from the game stores its own contents, so it gets the
+    // normal behaviour, like NSObject's.
+    if this != env.objc.get_known_class("NSMutableSet", &mut env.mem) {
+        return env.objc.alloc_object(this, Box::new(TrivialHostObject), &mut env.mem);
+    }
     msg_class![env; _touchHLE_NSMutableSet allocWithZone:zone]
 }
 
