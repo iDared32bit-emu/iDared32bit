@@ -4239,6 +4239,43 @@ int test_close() {
   return 0;
 }
 
+int test_NSDictionary_values() {
+  NSAutoreleasePool *pool = [NSAutoreleasePool new];
+  NSString *a = [NSString stringWithUTF8String:"a"];
+  NSString *b = [NSString stringWithUTF8String:"b"];
+  NSString *c = [NSString stringWithUTF8String:"c"];
+  NSString *x = [NSString stringWithUTF8String:"x"];
+  NSString *y = [NSString stringWithUTF8String:"y"];
+  NSDictionary *dict = [NSDictionary
+      dictionaryWithObjects:[NSArray arrayWithObjects:x, y, x, nil]
+                    forKeys:[NSArray arrayWithObjects:a, b, c, nil]];
+
+  int res = 0;
+  NSArray *values = [dict allValues];
+  int xs = 0, ys = 0;
+  for (NSUInteger i = 0; i < [values count]; i++) {
+    id v = [values objectAtIndex:i];
+    xs += v == x;
+    ys += v == y;
+  }
+  if ([values count] != 3 || xs != 2 || ys != 1)
+    res = -1;
+
+  NSArray *keys = [dict allKeysForObject:x];
+  if (res == 0 && ([keys count] != 2 || [[dict allKeysForObject:b] count]))
+    res = -2;
+
+  int count = 0;
+  NSEnumerator *e = [dict objectEnumerator];
+  while ([e nextObject])
+    count++;
+  if (res == 0 && count != 3)
+    res = -3;
+
+  [pool drain];
+  return res;
+}
+
 int test_CFMutableDictionary_NullCallbacks() {
   CFMutableDictionaryRef dict = CFDictionaryCreateMutable(NULL, 0, NULL, NULL);
   if (dict == NULL) {
@@ -8044,6 +8081,7 @@ struct {
     FUNC_DEF(test_NSThread_exit_pthread_exit),
     FUNC_DEF(test_NSOperationQueue),
     FUNC_DEF(test_NSCalendar),
+    FUNC_DEF(test_NSDictionary_values),
     FUNC_DEF(test_CFMutableDictionary_NullCallbacks),
     FUNC_DEF(test_CFMutableDictionary_CustomCallbacks_PrimitiveTypes),
     FUNC_DEF(test_CFMutableDictionary_CustomCallbacks_CFTypes),

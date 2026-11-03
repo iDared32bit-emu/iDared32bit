@@ -146,6 +146,9 @@ void (*method_getImplementation(Method m))(void);
 + (id)dictionaryWithContentsOfFile:(id)path;
 + (id)dictionaryWithContentsOfURL:(NSURL *)url;
 - (id)valueForKey:(id)key;
+- (NSArray<ObjectType> *)allValues;
+- (NSArray<KeyType> *)allKeysForObject:(ObjectType)anObject;
+- (id)objectEnumerator;
 @end
 
 @interface NSMutableDictionary<KeyType, ObjectType> : NSDictionary
