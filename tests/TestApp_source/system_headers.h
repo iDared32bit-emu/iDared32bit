@@ -97,6 +97,7 @@ void (*method_getImplementation(Method m))(void);
 + (BOOL)respondsToSelector:(SEL)selector;
 - (instancetype)init;
 - (instancetype)self;
+- (Class)class;
 - (instancetype)retain;
 - (void)release;
 - (instancetype)autorelease;
@@ -410,6 +411,21 @@ enum {
 @end
 
 extern NSString *const NSGregorianCalendar;
+
+@interface NSPort : NSObject
++ (instancetype)port;
+@end
+
+@interface NSMachPort : NSPort
+@end
+
+extern NSString *const NSDefaultRunLoopMode;
+
+@interface NSRunLoop : NSObject
++ (NSRunLoop *)currentRunLoop;
+- (void)addPort:(NSPort *)port forMode:(NSString *)mode;
+- (void)removePort:(NSPort *)port forMode:(NSString *)mode;
+@end
 
 @interface NSCalendar : NSObject
 - (instancetype)initWithCalendarIdentifier:(NSString *)identifier;

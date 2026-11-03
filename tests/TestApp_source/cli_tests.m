@@ -2572,6 +2572,31 @@ int test_NSThread_isExecuting_isFinished() {
   return 0;
 }
 
+int test_NSPort() {
+  NSAutoreleasePool *pool = [NSAutoreleasePool new];
+  int res = 0;
+
+  // NSPort is abstract, so it makes an NSMachPort.
+  NSPort *port = [NSPort port];
+  if ([port class] != [NSMachPort class])
+    res = -1;
+
+  // The run loop keeps its ports.
+  NSMachPort *machPort = [NSMachPort port];
+  NSRunLoop *runLoop = [NSRunLoop currentRunLoop];
+  NSUInteger before = [machPort retainCount];
+  [runLoop addPort:machPort forMode:NSDefaultRunLoopMode];
+  NSUInteger added = [machPort retainCount];
+  if (res == 0 && added <= before)
+    res = -2;
+  [runLoop removePort:machPort forMode:NSDefaultRunLoopMode];
+  if (res == 0 && [machPort retainCount] >= added)
+    res = -3;
+
+  [pool drain];
+  return res;
+}
+
 int test_NSCalendar() {
   NSCalendar *calendar =
       [[NSCalendar alloc] initWithCalendarIdentifier:NSGregorianCalendar];
@@ -8094,6 +8119,7 @@ struct {
     FUNC_DEF(test_NSThread_isExecuting_isFinished),
     FUNC_DEF(test_NSThread_exit_pthread_exit),
     FUNC_DEF(test_NSOperationQueue),
+    FUNC_DEF(test_NSPort),
     FUNC_DEF(test_NSCalendar),
     FUNC_DEF(test_NSDictionary_values),
     FUNC_DEF(test_CFMutableDictionary_NullCallbacks),

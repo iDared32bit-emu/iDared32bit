@@ -60,6 +60,8 @@ struct NSRunLoopHostObject {
     /// Strong references to `NSTimer*` in no particular order. Timers are owned
     /// by the run loop. The timer must remove itself when invalidated.
     timers: Vec<id>,
+    /// Strong references to `NSPort*`, in the order they were added.
+    ports: Vec<id>,
     /// Set by `CFRunLoopStop`, cleared when the run loop stops.
     stopped: bool,
 }
@@ -120,6 +122,29 @@ pub const CLASSES: ClassExports = objc_classes! {
     assert!(!host_object.timers.contains(&timer)); // TODO: what do we do here?
     host_object.timers.push(timer);
     ns_timer::set_run_loop(env, timer, this);
+}
+
+- (())addPort:(id)port // NSPort*
+       forMode:(NSRunLoopMode)mode {
+    let default_mode = ns_string::get_static_str(env, NSDefaultRunLoopMode);
+    let common_modes = ns_string::get_static_str(env, NSRunLoopCommonModes);
+    // TODO: handle other modes
+    assert!(msg![env; mode isEqualToString:default_mode] || msg![env; mode isEqualToString:common_modes]);
+
+    let ports = &env.objc.borrow::<NSRunLoopHostObject>(this).ports;
+    if !ports.contains(&port) {
+        retain(env, port);
+        env.objc.borrow_mut::<NSRunLoopHostObject>(this).ports.push(port);
+    }
+}
+
+- (())removePort:(id)port // NSPort*
+          forMode:(NSRunLoopMode)_mode {
+    let ports = &mut env.objc.borrow_mut::<NSRunLoopHostObject>(this).ports;
+    if let Some(i) = ports.iter().position(|&p| p == port) {
+        ports.remove(i);
+        release(env, port);
+    }
 }
 
 - (())run {
@@ -518,6 +543,7 @@ fn run_loop_for_thread(env: &mut Environment, this: Class, thread_id: ThreadId) 
             audio_queues: Vec::new(),
             selector_objects: VecDeque::new(),
             timers: Vec::new(),
+            ports: Vec::new(),
             stopped: false,
         });
         // TODO: is it OK to allocate static object for all threads,
