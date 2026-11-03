@@ -24,6 +24,7 @@ Compatibility:
 - Views now resize their contents like on a device, fixing missing buttons in some games.
 - Fixed crashes in some games when showing or closing a dialog.
 - Fixed entering text, such as a player name, in some games.
+- Shapes and gradients that games draw themselves are now shown, fixing a crash in some games.
 - Table views in games now show their rows, which can be tapped and edited, fixing crashes in some games' menus.
 - Fixed a crash in some games that show clipped text.
 - Fade transitions between screens now work, fixing a crash in some games.
