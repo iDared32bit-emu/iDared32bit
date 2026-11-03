@@ -28,13 +28,6 @@ pub fn main() {
                 .unwrap()
                 .trim_end()
                 .to_string();
-            if git_version
-                .strip_prefix('v')
-                .is_some_and(|v| !v.starts_with(&toml_version))
-                || !git_version.starts_with('v')
-            {
-                println!("cargo:warning=Cargo.toml version (v{toml_version}) is not a prefix of `git describe` version ({git_version})!");
-            }
             git_version
         }
         _ => {
