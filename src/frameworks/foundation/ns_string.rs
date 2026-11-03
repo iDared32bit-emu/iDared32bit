@@ -724,14 +724,17 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (NSComparisonResult)compare:(id)other options:(NSStringCompareOptions)mask { // NSString*
-    fn ascii_number(iter: &mut Peekable<CodeUnitIterator>, leftmost_digit: char) -> u32 {
+    /// The number and how many digits it's written with.
+    fn ascii_number(iter: &mut Peekable<CodeUnitIterator>, leftmost_digit: char) -> (u32, usize) {
         let mut num = leftmost_digit.to_digit(10).unwrap();
+        let mut digits = 1;
         while let Some(a_digit_char) = iter.next_if(
             |&x| char::from_u32(x as u32).is_some_and(|y| y.is_ascii_digit())
         ) {
             num = num * 10 + char::from_u32(a_digit_char as u32).unwrap().to_digit(10).unwrap();
+            digits += 1;
         }
-        num
+        (num, digits)
     }
 
     assert_ne!(other, nil);
@@ -751,6 +754,9 @@ pub const CLASSES: ClassExports = objc_classes! {
 
     // Strings are always compared literally here (by code unit, ignoring
     // canonical equivalence), as with NSLiteralSearch.
+    // For NSForcedOrderingSearch: the first equal numbers written with
+    // different numbers of digits, the longer one being later, as on iOS.
+    let mut digits_order = std::cmp::Ordering::Equal;
     let order = if !case_insensitive && !numeric {
         a_iter.cmp(b_iter)
     } else {
@@ -765,7 +771,12 @@ pub const CLASSES: ClassExports = objc_classes! {
             };
 
             let order = if numeric && a_c.is_ascii_digit() && b_c.is_ascii_digit() {
-                ascii_number(&mut a_iter, a_c).cmp(&ascii_number(&mut b_iter, b_c))
+                let (a_num, a_digits) = ascii_number(&mut a_iter, a_c);
+                let (b_num, b_digits) = ascii_number(&mut b_iter, b_c);
+                if digits_order == std::cmp::Ordering::Equal {
+                    digits_order = a_digits.cmp(&b_digits);
+                }
+                a_num.cmp(&b_num)
             } else if case_insensitive {
                 a_c.to_lowercase().cmp(b_c.to_lowercase())
             } else {
@@ -778,8 +789,11 @@ pub const CLASSES: ClassExports = objc_classes! {
     };
 
     // Strings that are equal but not identical (e.g. "a" and "A" when case
-    // insensitive) are ordered literally instead.
+    // insensitive) are ordered literally instead, or by their numbers' digits.
     if order == std::cmp::Ordering::Equal && mask & NSForcedOrderingSearch != 0 {
+        if digits_order != std::cmp::Ordering::Equal {
+            return from_rust_ordering(digits_order);
+        }
         let a_iter = env.objc.borrow::<StringHostObject>(this).iter_code_units();
         let b_iter = env.objc.borrow::<StringHostObject>(other).iter_code_units();
         return from_rust_ordering(a_iter.cmp(b_iter));

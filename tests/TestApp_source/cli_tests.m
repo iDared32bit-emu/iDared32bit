@@ -5791,9 +5791,22 @@ int test_NSString_compare_options() {
   NSString *a1 = [NSString stringWithUTF8String:"a1"];
   if ([a01 compare:a1 options:NSNumericSearch] != NSOrderedSame)
     return -6;
+  // The one with more digits is later, unlike a literal comparison.
   if ([a01 compare:a1 options:NSNumericSearch | NSForcedOrderingSearch] !=
-      NSOrderedAscending)
+      NSOrderedDescending)
     return -7;
+  if ([a01 compare:a1 options:NSForcedOrderingSearch] != NSOrderedAscending)
+    return -8;
+  NSString *a01b = [NSString stringWithUTF8String:"a01b"];
+  NSString *a1B = [NSString stringWithUTF8String:"a1B"];
+  if ([a01b compare:a1B
+            options:NSNumericSearch | NSCaseInsensitiveSearch |
+                    NSForcedOrderingSearch] != NSOrderedDescending)
+    return -9;
+  if ([a01b compare:a1B
+            options:NSCaseInsensitiveSearch | NSForcedOrderingSearch] !=
+      NSOrderedAscending)
+    return -10;
   return 0;
 }
 
