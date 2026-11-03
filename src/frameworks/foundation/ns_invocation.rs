@@ -9,7 +9,7 @@ use crate::abi::{extend_stack_for_args, write_next_arg, GuestArg};
 use crate::cpu::Cpu;
 use crate::frameworks::foundation::{NSInteger, NSUInteger};
 use crate::libc::string::strdup;
-use crate::mem::{ConstPtr, MutPtr, MutVoidPtr};
+use crate::mem::{ConstPtr, GuestUSize, MutPtr, MutVoidPtr};
 use crate::msg;
 use crate::objc::{
     autorelease, id, nil, objc_classes, objc_msgSend, release, retain, ClassExports, HostObject,
@@ -33,6 +33,22 @@ struct NSInvocationHostObject {
     copied_strings: Vec<MutPtr<u8>>,
 }
 impl HostObject for NSInvocationHostObject {}
+
+/// Strips type qualifiers such as `r` (const) from a type encoding.
+fn unqualified(arg_type: &str) -> &str {
+    arg_type.trim_start_matches(['r', 'n', 'N', 'o', 'O', 'R', 'V'])
+}
+
+/// Size in bytes of an argument of a type that can be passed.
+fn arg_size(arg_type: &str) -> GuestUSize {
+    match unqualified(arg_type).as_bytes()[0] {
+        b'c' | b'C' | b'B' => 1,
+        b's' | b'S' => 2,
+        b'i' | b'I' | b'l' | b'L' | b'f' | b'@' | b'#' | b':' | b'*' | b'^' => 4,
+        b'q' | b'Q' | b'd' => 8,
+        _ => unimplemented!("unhandled argument type {arg_type}"),
+    }
+}
 
 pub const CLASSES: ClassExports = objc_classes! {
 
@@ -96,7 +112,7 @@ pub const CLASSES: ClassExports = objc_classes! {
     for i in 2..num_of_args {
         let host = env.objc.borrow::<NSInvocationHostObject>(this);
         let Some(arg_loc) = host.arguments[i] else { continue };
-        match host.argument_types[i].as_str() {
+        match unqualified(&host.argument_types[i]) {
             "@" => {
                 let obj: id = env.mem.read(arg_loc.cast().cast_const());
                 retain(env, obj);
@@ -136,32 +152,12 @@ pub const CLASSES: ClassExports = objc_classes! {
 
     let argument_types: &Vec<String> = env.objc.borrow::<NSInvocationHostObject>(this).argument_types.as_ref();
     let arg_type = argument_types.get(idx as usize).unwrap();
-    let new: MutVoidPtr = match arg_type.as_str() {
-        "f" => {
-            let arg_loc: MutPtr<f32> = arg_loc.cast();
-            let arg = env.mem.read(arg_loc);
-            env.mem.alloc_and_write(arg).cast()
-        }
-        "@" => {
-            assert!(!arguments_retained); // TODO
-            let arg_loc: MutPtr<id> = arg_loc.cast();
-            let arg = env.mem.read(arg_loc);
-            env.mem.alloc_and_write(arg).cast()
-        }
-        "*" => {
-            assert!(!arguments_retained); // TODO
-            let arg_loc: MutPtr<MutPtr<u8>> = arg_loc.cast();
-            let arg = env.mem.read(arg_loc);
-            env.mem.alloc_and_write(arg).cast()
-        }
-        // pointer cases
-        _ if arg_type.starts_with('^') => {
-            let arg_loc: MutPtr<MutVoidPtr> = arg_loc.cast();
-            let arg = env.mem.read(arg_loc);
-            env.mem.alloc_and_write(arg).cast()
-        }
-        _ => unimplemented!("unhandled argument type {arg_type}"),
-    };
+    if matches!(unqualified(arg_type), "@" | "*") {
+        assert!(!arguments_retained); // TODO
+    }
+    let size = arg_size(arg_type);
+    let new = env.mem.alloc(size);
+    env.mem.memmove(new, arg_loc.cast_const(), size);
 
     env.objc.borrow_mut::<NSInvocationHostObject>(this).arguments[idx as usize] = Some(new);
 }
@@ -188,17 +184,11 @@ pub const CLASSES: ClassExports = objc_classes! {
     let mut reg_count = 0;
     let argument_types: &Vec<String> = env.objc.borrow::<NSInvocationHostObject>(this).argument_types.as_ref();
     for arg_type in argument_types.iter() {
-        // TODO: refactor and simplify
-        reg_count += match arg_type.as_str() {
-            "@" => <id as GuestArg>::REG_COUNT,
-            ":" => <SEL as GuestArg>::REG_COUNT,
-            "f" => <f32 as GuestArg>::REG_COUNT,
-            "c" => <u8 as GuestArg>::REG_COUNT,
-            "*" => <MutPtr<u8> as GuestArg>::REG_COUNT,
-            // pointer cases
-            _ if arg_type.starts_with('^') => <MutVoidPtr as GuestArg>::REG_COUNT,
-            _ => unimplemented!("reg_count for {arg_type}")
-        }
+        reg_count += if arg_size(arg_type) == 8 {
+            <u64 as GuestArg>::REG_COUNT
+        } else {
+            <u32 as GuestArg>::REG_COUNT
+        };
     }
     let regs = env.cpu.regs_mut();
     let old_sp = extend_stack_for_args(
@@ -227,41 +217,34 @@ pub const CLASSES: ClassExports = objc_classes! {
             continue;
         }
         let arg_slot = arguments[i].unwrap();
-        let arg_type = argument_types[i].as_str();
-        // TODO: refactor and simplify
-        match arg_type {
-            "@" => {
-                let arg: ConstPtr<id> = arg_slot.cast().cast_const();
-                let arg_val = env.mem.read(arg);
-                let regs = env.cpu.regs_mut();
-                write_next_arg::<id>(&mut reg_offset, regs, &mut env.mem, arg_val);
-            },
-            "f" => {
-                let arg: ConstPtr<f32> = arg_slot.cast().cast_const();
-                let arg_val = env.mem.read(arg);
-                let regs = env.cpu.regs_mut();
-                write_next_arg::<f32>(&mut reg_offset, regs, &mut env.mem, arg_val);
-            },
-            "c" => {
-                let arg: ConstPtr<u8> = arg_slot.cast().cast_const();
-                let arg_val = env.mem.read(arg);
-                let regs = env.cpu.regs_mut();
+        let arg_type = unqualified(&argument_types[i]);
+        let regs = env.cpu.regs_mut();
+        // Like a C caller, extend values smaller than a register.
+        match arg_type.as_bytes()[0] {
+            b'q' | b'Q' | b'd' => {
+                let arg_val: u64 = env.mem.read(arg_slot.cast().cast_const());
+                write_next_arg::<u64>(&mut reg_offset, regs, &mut env.mem, arg_val);
+            }
+            b'c' => {
+                let arg_val: i8 = env.mem.read(arg_slot.cast().cast_const());
+                write_next_arg::<i8>(&mut reg_offset, regs, &mut env.mem, arg_val);
+            }
+            b'C' | b'B' => {
+                let arg_val: u8 = env.mem.read(arg_slot.cast().cast_const());
                 write_next_arg::<u8>(&mut reg_offset, regs, &mut env.mem, arg_val);
             }
-            "*" => {
-                let arg: ConstPtr<MutPtr<u8>> = arg_slot.cast().cast_const();
-                let arg_val = env.mem.read(arg);
-                let regs = env.cpu.regs_mut();
-                write_next_arg::<MutPtr<u8>>(&mut reg_offset, regs, &mut env.mem, arg_val);
+            b's' => {
+                let arg_val: i16 = env.mem.read(arg_slot.cast().cast_const());
+                write_next_arg::<i16>(&mut reg_offset, regs, &mut env.mem, arg_val);
             }
-            // pointer cases
-            _ if arg_type.starts_with('^') => {
-                let arg: ConstPtr<MutVoidPtr> = arg_slot.cast().cast_const();
-                let arg_val = env.mem.read(arg);
-                let regs = env.cpu.regs_mut();
-                write_next_arg::<MutVoidPtr>(&mut reg_offset, regs, &mut env.mem, arg_val);
+            b'S' => {
+                let arg_val: u16 = env.mem.read(arg_slot.cast().cast_const());
+                write_next_arg::<u16>(&mut reg_offset, regs, &mut env.mem, arg_val);
             }
-            _ => unimplemented!("write_next_arg for {arg_type}")
+            _ => {
+                let arg_val: u32 = env.mem.read(arg_slot.cast().cast_const());
+                write_next_arg::<u32>(&mut reg_offset, regs, &mut env.mem, arg_val);
+            }
         }
     }
 

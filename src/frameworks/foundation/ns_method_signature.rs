@@ -101,12 +101,13 @@ fn parse_signature_inner(env: &mut Environment, curr: ConstPtr<u8>) -> (GuestUSi
     let mut idx = 0;
     let c = env.mem.read(curr);
     match c {
-        b'^' => {
-            // pointer
+        // pointer, or a type qualifier such as `r` for const
+        b'^' | b'r' | b'n' | b'N' | b'o' | b'O' | b'R' | b'V' => {
             let (scanned, read, size) = parse_signature_inner(env, curr + 1);
             (scanned + 1, read + 1, size)
         }
-        b'v' | b'@' | b':' | b'f' | b'c' | b'*' | b'i' => {
+        b'v' | b'@' | b'#' | b':' | b'*' | b'c' | b'C' | b's' | b'S' | b'i' | b'I' | b'l'
+        | b'L' | b'q' | b'Q' | b'f' | b'd' | b'B' => {
             idx += 1;
             let mut size = 0;
             while let cc @ b'0'..=b'9' = env.mem.read(curr + idx) {

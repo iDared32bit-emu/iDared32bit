@@ -6470,11 +6470,21 @@ int test_wcsftime() {
   id receivedValue;
   const char *cstringValue;
   int intValue;
+  SEL selValue;
+  short shortValue;
+  char charValue;
+  long long longLongValue;
+  double doubleValue;
 }
 - (void)storeValue:(id)value;
 - (void)clearValue;
 - (void)storeCString:(const char *)str;
 - (void)storeIntPtr:(int *)ptr;
+- (void)storeSel:(SEL)sel
+           short:(short)h
+            char:(char)c
+        longLong:(long long)q
+          double:(double)d;
 @end
 
 @implementation InvocationTarget
@@ -6489,6 +6499,17 @@ int test_wcsftime() {
 }
 - (void)storeIntPtr:(int *)ptr {
   intValue = *ptr;
+}
+- (void)storeSel:(SEL)sel
+           short:(short)h
+            char:(char)c
+        longLong:(long long)q
+          double:(double)d {
+  selValue = sel;
+  shortValue = h;
+  charValue = c;
+  longLongValue = q;
+  doubleValue = d;
 }
 @end
 
@@ -6595,6 +6616,43 @@ int test_NSInvocation() {
 
   [pool drain];
   return 0;
+}
+
+int test_NSInvocation_scalarArguments() {
+  NSAutoreleasePool *pool = [NSAutoreleasePool new];
+
+  InvocationTarget *target = [InvocationTarget new];
+  SEL sel = NSSelectorFromString(
+      [NSString stringWithUTF8String:"storeSel:short:char:longLong:double:"]);
+  NSMethodSignature *sig = [target methodSignatureForSelector:sel];
+  NSInvocation *inv = [NSInvocation invocationWithMethodSignature:sig];
+  [inv setTarget:target];
+  [inv setSelector:sel];
+
+  SEL selArg = NSSelectorFromString([NSString stringWithUTF8String:"self"]);
+  short h = -300;
+  char c = -5;
+  long long q = 0x123456789LL;
+  double d = 2.5;
+  [inv setArgument:&selArg atIndex:2];
+  [inv setArgument:&h atIndex:3];
+  [inv setArgument:&c atIndex:4];
+  [inv setArgument:&q atIndex:5];
+  [inv setArgument:&d atIndex:6];
+  [inv invoke];
+
+  int res = 0;
+  if (target->selValue != selArg)
+    res = -1;
+  else if (target->shortValue != -300 || target->charValue != -5)
+    res = -2;
+  else if (target->longLongValue != 0x123456789LL)
+    res = -3;
+  else if (target->doubleValue != 2.5)
+    res = -4;
+  [target release];
+  [pool drain];
+  return res;
 }
 
 int test_NSInvocation_invokeWithTarget() {
@@ -7994,6 +8052,7 @@ struct {
     FUNC_DEF(test_NSNumber_stringValue),
     FUNC_DEF(test_NSMethodSignature),
     FUNC_DEF(test_NSInvocation),
+    FUNC_DEF(test_NSInvocation_scalarArguments),
     FUNC_DEF(test_NSInvocation_invokeWithTarget),
     FUNC_DEF(test_NSInvocation_retainArguments),
     FUNC_DEF(test_NSInvocation_pointer),
