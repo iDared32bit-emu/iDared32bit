@@ -159,6 +159,30 @@ pub const CLASSES: ClassExports = objc_classes! {
     run_run_loop(env, this, /* single_iteration: */ false, Some(time_limit));
 }
 
+- (bool)runMode:(NSRunLoopMode)mode beforeDate:(id)date {
+    let default_mode = ns_string::get_static_str(env, NSDefaultRunLoopMode);
+    let common_modes = ns_string::get_static_str(env, NSRunLoopCommonModes);
+    // TODO: handle other modes
+    assert!(msg![env; mode isEqualToString:default_mode] || msg![env; mode isEqualToString:common_modes]);
+
+    // With nothing attached, it can't run. The main run loop always has
+    // UIKit's event handling.
+    let host_object = env.objc.borrow::<NSRunLoopHostObject>(this);
+    let has_sources = env.current_thread == 0
+        || !host_object.timers.is_empty()
+        || !host_object.ports.is_empty()
+        || !host_object.selector_objects.is_empty()
+        || !host_object.audio_queues.is_empty()
+        || !host_object.audio_units.is_empty();
+    if !has_sources {
+        return false;
+    }
+
+    let time_limit: NSTimeInterval = msg![env; date timeIntervalSince1970];
+    run_run_loop_inner(env, this, false, Some(time_limit), true);
+    true
+}
+
 // TODO: other run methods
 
 @end
@@ -343,6 +367,19 @@ pub fn run_run_loop(
     single_iteration: bool,
     unix_time_limit: Option<f64>,
 ) {
+    run_run_loop_inner(env, run_loop, single_iteration, unix_time_limit, false);
+}
+
+/// Like [run_run_loop], but can also stop once an input source (not a timer)
+/// has been handled, as `runMode:beforeDate:` does.
+fn run_run_loop_inner(
+    env: &mut Environment,
+    run_loop: id,
+    single_iteration: bool,
+    unix_time_limit: Option<f64>,
+    stop_after_source: bool,
+) {
+    let mut handled_source = false;
     if single_iteration {
         log_dbg!(
             "Entering run loop {:?} (single iteration), limit {:?}",
@@ -475,6 +512,7 @@ pub fn run_run_loop(
                     if !semaphore.is_null() {
                         sem_post(env, semaphore);
                     }
+                    handled_source = true;
                 }
                 None => {
                     for oss in selector_objects {
@@ -488,6 +526,10 @@ pub fn run_run_loop(
         if is_main_run_loop {
             media_player::handle_players(env);
             release(env, pool);
+        }
+
+        if stop_after_source && handled_source {
+            break;
         }
 
         // Unfortunately, touchHLE has to poll for certain things repeatedly;

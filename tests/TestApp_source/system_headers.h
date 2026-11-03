@@ -86,6 +86,7 @@ void (*method_getImplementation(Method m))(void);
 // Foundation
 
 @class NSMethodSignature;
+@class NSThread;
 
 @interface NSObject {
   Class isa;
@@ -104,6 +105,10 @@ void (*method_getImplementation(Method m))(void);
 - (void)dealloc;
 - (NSUInteger)retainCount;
 - (id)performSelector:(SEL)selector;
+- (void)performSelector:(SEL)selector
+               onThread:(NSThread *)thread
+             withObject:(id)arg
+          waitUntilDone:(BOOL)wait;
 - (BOOL)respondsToSelector:(SEL)selector;
 - (NSMethodSignature *)methodSignatureForSelector:(SEL)selector;
 + (void (*)(void))instanceMethodForSelector:(SEL)selector;
@@ -376,6 +381,9 @@ SEL NSSelectorFromString(NSString *);
 @end
 
 @interface NSDate : NSObject
++ (instancetype)date;
++ (instancetype)distantFuture;
++ (instancetype)dateWithTimeIntervalSinceNow:(NSTimeInterval)secs;
 + (instancetype)dateWithTimeIntervalSinceReferenceDate:(NSTimeInterval)secs;
 - (NSTimeInterval)timeIntervalSinceReferenceDate;
 @end
@@ -425,6 +433,7 @@ extern NSString *const NSDefaultRunLoopMode;
 + (NSRunLoop *)currentRunLoop;
 - (void)addPort:(NSPort *)port forMode:(NSString *)mode;
 - (void)removePort:(NSPort *)port forMode:(NSString *)mode;
+- (BOOL)runMode:(NSString *)mode beforeDate:(NSDate *)limitDate;
 @end
 
 @interface NSCalendar : NSObject

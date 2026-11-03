@@ -2597,6 +2597,67 @@ int test_NSPort() {
   return res;
 }
 
+@interface RunModeTarget : NSObject {
+@public
+  int ran;
+}
+- (void)ping;
+@end
+
+@implementation RunModeTarget
+- (void)ping {
+  ran = 1;
+}
+@end
+
+void *run_mode_pthread(void *arg) {
+  NSAutoreleasePool *pool = [NSAutoreleasePool new];
+  int *res = arg;
+  NSRunLoop *runLoop = [NSRunLoop currentRunLoop];
+  NSDate *start = [NSDate date];
+
+  // With nothing attached, it can't run.
+  if ([runLoop runMode:NSDefaultRunLoopMode beforeDate:[NSDate distantFuture]])
+    *res = -1;
+
+  // A port keeps it running until the date.
+  [runLoop addPort:[NSMachPort port] forMode:NSDefaultRunLoopMode];
+  if (*res == 0 &&
+      ![runLoop runMode:NSDefaultRunLoopMode
+             beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.05]])
+    *res = -2;
+
+  // A performed selector is an input source: it returns once that has run,
+  // well before the date.
+  RunModeTarget *target = [RunModeTarget new];
+  [target performSelector:@selector(ping)
+                 onThread:[NSThread currentThread]
+               withObject:nil
+            waitUntilDone:NO];
+  if (*res == 0 &&
+      (![runLoop runMode:NSDefaultRunLoopMode
+              beforeDate:[NSDate dateWithTimeIntervalSinceNow:10]] ||
+       !target->ran))
+    *res = -3;
+  if (*res == 0 && [[NSDate date] timeIntervalSinceReferenceDate] -
+                           [start timeIntervalSinceReferenceDate] >
+                       5)
+    *res = -4;
+
+  [target release];
+  [pool release];
+  return NULL;
+}
+
+int test_NSRunLoop_runMode() {
+  int res = 0;
+  pthread_t p;
+  if (pthread_create(&p, NULL, run_mode_pthread, &res) != 0 ||
+      pthread_join(p, NULL) != 0)
+    return -10;
+  return res;
+}
+
 int test_NSCalendar() {
   NSCalendar *calendar =
       [[NSCalendar alloc] initWithCalendarIdentifier:NSGregorianCalendar];
@@ -8120,6 +8181,7 @@ struct {
     FUNC_DEF(test_NSThread_exit_pthread_exit),
     FUNC_DEF(test_NSOperationQueue),
     FUNC_DEF(test_NSPort),
+    FUNC_DEF(test_NSRunLoop_runMode),
     FUNC_DEF(test_NSCalendar),
     FUNC_DEF(test_NSDictionary_values),
     FUNC_DEF(test_CFMutableDictionary_NullCallbacks),
