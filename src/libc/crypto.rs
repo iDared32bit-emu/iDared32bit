@@ -15,11 +15,11 @@ use crate::{export_c_func, Environment};
 use aes::cipher::block_padding::{NoPadding, Padding, Pkcs7};
 use aes::cipher::{BlockCipher, BlockDecryptMut, BlockEncryptMut, KeyInit, KeyIvInit};
 use digest::Digest;
-use hmac::Mac;
+use hmac::{Hmac, Mac};
 use md5::Md5;
 use sha1::Sha1;
 use sha2::digest::generic_array::GenericArray;
-use sha2::Sha256;
+use sha2::{Sha224, Sha256, Sha384, Sha512};
 use std::collections::HashMap;
 
 // TODO: struct definition
@@ -63,10 +63,13 @@ fn CC_MD5_Final(env: &mut Environment, md: MutPtr<u8>, ctx: MutPtr<CC_MD5_CTX>) 
     1 // success
 }
 
-type HmacSha1 = hmac::Hmac<Sha1>;
-
 type CCHmacAlgorithm = u32;
 pub const kCCHmacAlgSHA1: CCHmacAlgorithm = 0;
+pub const kCCHmacAlgMD5: CCHmacAlgorithm = 1;
+pub const kCCHmacAlgSHA256: CCHmacAlgorithm = 2;
+pub const kCCHmacAlgSHA384: CCHmacAlgorithm = 3;
+pub const kCCHmacAlgSHA512: CCHmacAlgorithm = 4;
+pub const kCCHmacAlgSHA224: CCHmacAlgorithm = 5;
 
 type CCOperation = u32;
 pub const kCCEncrypt: CCOperation = 0;
@@ -193,6 +196,12 @@ fn CC_SHA256_Final(env: &mut Environment, md: MutPtr<u8>, c: MutPtr<CC_SHA256_CT
     1
 }
 
+fn hmac<M: Mac + KeyInit>(key: &[u8], data: &[u8]) -> Vec<u8> {
+    let mut mac = <M as Mac>::new_from_slice(key).unwrap();
+    mac.update(data);
+    mac.finalize().into_bytes().to_vec()
+}
+
 fn CCHmac(
     env: &mut Environment,
     algorithm: CCHmacAlgorithm,
@@ -202,22 +211,21 @@ fn CCHmac(
     data_length: GuestUSize,
     mac_out: MutVoidPtr,
 ) {
-    match algorithm {
-        kCCHmacAlgSHA1 => {
-            let mut mac =
-                <HmacSha1 as Mac>::new_from_slice(env.mem.bytes_at(key.cast(), key_length))
-                    .unwrap();
-            mac.update(env.mem.bytes_at(data.cast(), data_length));
-            let res = mac.finalize().into_bytes();
-            let out = env
-                .mem
-                .bytes_at_mut(mac_out.cast(), res.len().try_into().unwrap());
-            out.copy_from_slice(res.as_slice());
-        }
-        _ => {
-            panic!("Unsupported algorithm {algorithm} for CCHmac(...)!");
-        }
-    }
+    let key = env.mem.bytes_at(key.cast(), key_length);
+    let data = env.mem.bytes_at(data.cast(), data_length);
+    let res = match algorithm {
+        kCCHmacAlgSHA1 => hmac::<Hmac<Sha1>>(key, data),
+        kCCHmacAlgMD5 => hmac::<Hmac<Md5>>(key, data),
+        kCCHmacAlgSHA256 => hmac::<Hmac<Sha256>>(key, data),
+        kCCHmacAlgSHA384 => hmac::<Hmac<Sha384>>(key, data),
+        kCCHmacAlgSHA512 => hmac::<Hmac<Sha512>>(key, data),
+        kCCHmacAlgSHA224 => hmac::<Hmac<Sha224>>(key, data),
+        _ => panic!("Unsupported algorithm {algorithm} for CCHmac(...)!"),
+    };
+    let out = env
+        .mem
+        .bytes_at_mut(mac_out.cast(), res.len().try_into().unwrap());
+    out.copy_from_slice(&res);
 }
 
 /// Encrypts or decrypts with block cipher `C` in ECB or CBC mode, padding
