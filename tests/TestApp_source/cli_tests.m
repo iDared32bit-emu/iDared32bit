@@ -2441,6 +2441,146 @@ int test_NSThread_isExecuting_isFinished() {
   return 0;
 }
 
+static int operation_log[8];
+static volatile int operation_log_count;
+
+@interface LoggingOperation : NSOperation {
+@public
+  int tag;
+}
+@end
+@implementation LoggingOperation
+- (void)main {
+  operation_log[operation_log_count++] = tag;
+}
+@end
+
+// Runs itself on its own thread, as concurrent operations do.
+@interface ConcurrentOperation : NSOperation {
+  BOOL executing;
+  BOOL finished;
+}
+@end
+@implementation ConcurrentOperation
+- (BOOL)isConcurrent {
+  return YES;
+}
+- (BOOL)isExecuting {
+  return executing;
+}
+- (BOOL)isFinished {
+  return finished;
+}
+- (void)start {
+  NSString *key = [NSString stringWithUTF8String:"isExecuting"];
+  [self willChangeValueForKey:key];
+  executing = YES;
+  [self didChangeValueForKey:key];
+  NSThread *thread = [[NSThread alloc] initWithTarget:self
+                                             selector:@selector(work:)
+                                               object:nil];
+  [thread start];
+  [thread release];
+}
+- (void)work:(id)unused {
+  NSAutoreleasePool *pool = [NSAutoreleasePool new];
+  usleep(10000);
+  operation_log[operation_log_count++] = 9;
+  NSString *executing_key = [NSString stringWithUTF8String:"isExecuting"];
+  NSString *finished_key = [NSString stringWithUTF8String:"isFinished"];
+  [self willChangeValueForKey:executing_key];
+  [self willChangeValueForKey:finished_key];
+  executing = NO;
+  finished = YES;
+  [self didChangeValueForKey:executing_key];
+  [self didChangeValueForKey:finished_key];
+  [pool release];
+}
+@end
+
+@interface InvocationOperationTarget : NSObject
+- (void)log:(id)object;
+@end
+@implementation InvocationOperationTarget
+- (void)log:(id)object {
+  operation_log[operation_log_count++] = object == nil ? 7 : 8;
+}
+@end
+
+int test_NSOperationQueue() {
+  NSOperationQueue *queue = [NSOperationQueue new];
+  [queue setMaxConcurrentOperationCount:1];
+
+  // b waits for c, added after it; d is cancelled, so it never runs.
+  operation_log_count = 0;
+  LoggingOperation *a = [LoggingOperation new];
+  LoggingOperation *b = [LoggingOperation new];
+  LoggingOperation *c = [LoggingOperation new];
+  LoggingOperation *d = [LoggingOperation new];
+  a->tag = 1;
+  b->tag = 2;
+  c->tag = 3;
+  d->tag = 4;
+  [b addDependency:c];
+  [d cancel];
+  [queue addOperation:a];
+  [queue addOperation:b];
+  [queue addOperation:c];
+  [queue addOperation:d];
+  [queue waitUntilAllOperationsAreFinished];
+  if (operation_log_count != 3)
+    return -1;
+  int b_index = -1, c_index = -1;
+  for (int i = 0; i < 3; i++) {
+    if (operation_log[i] == 2)
+      b_index = i;
+    if (operation_log[i] == 3)
+      c_index = i;
+  }
+  if (c_index < 0 || b_index < c_index)
+    return -2;
+  if (![d isFinished] || ![d isCancelled] || [queue operationCount] != 0)
+    return -3;
+  if (![a isFinished] || [a isExecuting] || [a isConcurrent])
+    return -4;
+
+  // A concurrent operation, finishing on its own thread.
+  operation_log_count = 0;
+  ConcurrentOperation *e = [ConcurrentOperation new];
+  [queue addOperation:e];
+  [queue waitUntilAllOperationsAreFinished];
+  if (operation_log_count != 1 || operation_log[0] != 9 || ![e isFinished])
+    return -5;
+
+  // NSInvocationOperation, without and with an object.
+  operation_log_count = 0;
+  InvocationOperationTarget *target = [InvocationOperationTarget new];
+  NSInvocationOperation *f =
+      [[NSInvocationOperation alloc] initWithTarget:target
+                                           selector:@selector(log:)
+                                             object:nil];
+  NSInvocationOperation *g =
+      [[NSInvocationOperation alloc] initWithTarget:target
+                                           selector:@selector(log:)
+                                             object:target];
+  [queue addOperation:f];
+  [queue addOperation:g];
+  [queue waitUntilAllOperationsAreFinished];
+  if (operation_log_count != 2 || operation_log[0] + operation_log[1] != 15)
+    return -6;
+
+  [a release];
+  [b release];
+  [c release];
+  [d release];
+  [e release];
+  [f release];
+  [g release];
+  [target release];
+  [queue release];
+  return 0;
+}
+
 @interface NSThreadExitTarget : NSObject {
 @public
   volatile int reached_exit;
@@ -7613,6 +7753,7 @@ struct {
     FUNC_DEF(test_NSConditionLock_producer_consumer),
     FUNC_DEF(test_NSThread_isExecuting_isFinished),
     FUNC_DEF(test_NSThread_exit_pthread_exit),
+    FUNC_DEF(test_NSOperationQueue),
     FUNC_DEF(test_CFMutableDictionary_NullCallbacks),
     FUNC_DEF(test_CFMutableDictionary_CustomCallbacks_PrimitiveTypes),
     FUNC_DEF(test_CFMutableDictionary_CustomCallbacks_CFTypes),

@@ -347,6 +347,30 @@ SEL NSSelectorFromString(NSString *);
 - (BOOL)isFinished;
 @end
 
+@interface NSOperation : NSObject
+- (void)start;
+- (void)main;
+- (void)cancel;
+- (BOOL)isCancelled;
+- (BOOL)isExecuting;
+- (BOOL)isFinished;
+- (BOOL)isConcurrent;
+- (BOOL)isReady;
+- (void)addDependency:(NSOperation *)operation;
+@end
+
+@interface NSInvocationOperation : NSOperation
+- (instancetype)initWithTarget:(id)target selector:(SEL)sel object:(id)arg;
+@end
+
+@interface NSOperationQueue : NSObject
+- (void)addOperation:(NSOperation *)operation;
+- (void)setMaxConcurrentOperationCount:(NSInteger)count;
+- (void)cancelAllOperations;
+- (NSUInteger)operationCount;
+- (void)waitUntilAllOperationsAreFinished;
+@end
+
 // Core Graphics
 
 // (See CGAffineTransform.c for where this define comes from.)
