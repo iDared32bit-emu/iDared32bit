@@ -4727,6 +4727,20 @@ int test_NSDictionary_subclass() {
 }
 @end
 
+int test_NSMutableSet_addObjectsFromArray() {
+  NSAutoreleasePool *pool = [NSAutoreleasePool new];
+  NSString *a = [NSString stringWithUTF8String:"a"];
+  NSString *b = [NSString stringWithUTF8String:"b"];
+  NSMutableSet *set = [NSMutableSet setWithCapacity:2];
+  // A set holds each object only once.
+  [set addObjectsFromArray:[NSArray arrayWithObjects:a, b, a, nil]];
+  int res = [set count] == 2 && [set containsObject:a] && [set containsObject:b]
+                ? 0
+                : -1;
+  [pool drain];
+  return res;
+}
+
 // Subclasses, as games make, with their own storage. Inherited methods must
 // work through their primitive methods.
 int test_class_cluster_subclasses() {
@@ -8651,6 +8665,7 @@ struct {
     FUNC_DEF(test_NSRunLoop_runMode),
     FUNC_DEF(test_NSCalendar),
     FUNC_DEF(test_NSDictionary_subclass),
+    FUNC_DEF(test_NSMutableSet_addObjectsFromArray),
     FUNC_DEF(test_class_cluster_subclasses),
     FUNC_DEF(test_NSDictionary_values),
     FUNC_DEF(test_CFMutableDictionary_NullCallbacks),

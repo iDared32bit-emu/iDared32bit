@@ -189,6 +189,11 @@ typedef struct {
 - (BOOL)containsObject:(ObjectType)anObject;
 @end
 
+@interface NSMutableSet<ObjectType> : NSSet
++ (instancetype)setWithCapacity:(NSUInteger)capacity;
+- (void)addObjectsFromArray:(NSArray<ObjectType> *)array;
+@end
+
 typedef enum {
   NSCaseInsensitiveSearch = 1,
   NSLiteralSearch = 2,

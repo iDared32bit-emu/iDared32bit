@@ -158,6 +158,14 @@ pub const CLASSES: ClassExports = objc_classes! {
     autorelease(env, new)
 }
 
+- (())addObjectsFromArray:(id)array { // NSArray*
+    let count: NSUInteger = msg![env; array count];
+    for i in 0..count {
+        let object: id = msg![env; array objectAtIndex:i];
+        () = msg![env; this addObject:object];
+    }
+}
+
 // NSCopying implementation
 - (id)copyWithZone:(NSZonePtr)_zone {
     todo!(); // TODO: this should produce an immutable copy
