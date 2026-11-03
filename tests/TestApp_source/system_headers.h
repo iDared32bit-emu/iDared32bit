@@ -92,6 +92,13 @@ void (*method_getImplementation(Method m))(void);
 @class NSMethodSignature;
 @class NSThread;
 
+typedef struct {
+  unsigned long state;
+  id *itemsPtr;
+  unsigned long *mutationsPtr;
+  unsigned long extra[5];
+} NSFastEnumerationState;
+
 @interface NSObject {
   Class isa;
 }
@@ -118,6 +125,9 @@ void (*method_getImplementation(Method m))(void);
           waitUntilDone:(BOOL)wait;
 - (BOOL)respondsToSelector:(SEL)selector;
 - (NSMethodSignature *)methodSignatureForSelector:(SEL)selector;
+- (NSUInteger)countByEnumeratingWithState:(NSFastEnumerationState *)state
+                                  objects:(id *)buffer
+                                    count:(NSUInteger)len;
 + (void (*)(void))instanceMethodForSelector:(SEL)selector;
 - (void (*)(void))methodForSelector:(SEL)selector;
 @end
@@ -136,6 +146,7 @@ void (*method_getImplementation(Method m))(void);
 - (ObjectType)objectAtIndex:(NSUInteger)index;
 - (BOOL)containsObject:(ObjectType)anObject;
 - (BOOL)isEqualToArray:(NSArray *)otherArray;
+- (id)objectEnumerator;
 @end
 
 @interface NSMutableArray<ObjectType> : NSArray
@@ -160,6 +171,7 @@ void (*method_getImplementation(Method m))(void);
 + (id)dictionaryWithContentsOfFile:(id)path;
 + (id)dictionaryWithContentsOfURL:(NSURL *)url;
 - (id)valueForKey:(id)key;
+- (NSArray<KeyType> *)allKeys;
 - (NSArray<ObjectType> *)allValues;
 - (NSArray<KeyType> *)allKeysForObject:(ObjectType)anObject;
 - (id)objectEnumerator;
@@ -172,6 +184,7 @@ void (*method_getImplementation(Method m))(void);
 
 @interface NSSet<ObjectType> : NSObject
 - (ObjectType)anyObject;
+- (NSArray<ObjectType> *)allObjects;
 - (NSUInteger)count;
 - (BOOL)containsObject:(ObjectType)anObject;
 @end

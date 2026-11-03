@@ -172,6 +172,32 @@ pub const CLASSES: ClassExports = objc_classes! {
     }
     NSNotFound as NSUInteger
 }
+// These work through count and objectAtIndex:, for subclasses from the game.
+// Our private subclasses have faster versions.
+- (id)objectEnumerator { // NSEnumerator*
+    let objects = objects_via_primitives(env, this);
+    object_enumerator_inner_helper(env, this, objects)
+}
+- (id)reverseObjectEnumerator { // NSEnumerator*
+    let mut objects = objects_via_primitives(env, this);
+    objects.reverse();
+    object_enumerator_inner_helper(env, this, objects)
+}
+
+// NSFastEnumeration implementation
+- (NSUInteger)countByEnumeratingWithState:(MutPtr<NSFastEnumerationState>)state
+                                  objects:(MutPtr<id>)stackbuf
+                                    count:(NSUInteger)len {
+    let count: NSUInteger = msg![env; this count];
+    fast_enumeration_helper(env, this, |env, idx| {
+        if idx < count {
+            msg![env; this objectAtIndex:idx]
+        } else {
+            nil
+        }
+    }, state, stackbuf, len)
+}
+
 - (bool)containsObject:(id)object {
     let idx: NSUInteger = msg![env; this indexOfObject:object];
     idx != NSNotFound as NSUInteger
@@ -435,20 +461,6 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 - (id)reverseObjectEnumerator { // NSEnumerator*
     reverse_object_enumerator_inner(env, this)
-}
-
-// NSFastEnumeration implementation
-- (NSUInteger)countByEnumeratingWithState:(MutPtr<NSFastEnumerationState>)state
-                                  objects:(MutPtr<id>)stackbuf
-                                    count:(NSUInteger)len {
-    let count: NSUInteger = msg![env; this count];
-    fast_enumeration_helper(env, this, |env, idx| {
-        if idx < count {
-            msg![env; this objectAtIndex:idx]
-        } else {
-            nil
-        }
-    }, state, stackbuf, len)
 }
 
 // TODO: more init methods, etc
@@ -877,6 +889,12 @@ fn reverse_object_enumerator_inner(env: &mut Environment, arr: id) -> id {
         .cloned()
         .collect::<Vec<_>>();
     object_enumerator_inner_helper(env, arr, vec)
+}
+
+/// The objects of any array, through `count` and `objectAtIndex:`.
+fn objects_via_primitives(env: &mut Environment, arr: id) -> Vec<id> {
+    let count: NSUInteger = msg![env; arr count];
+    (0..count).map(|i| msg![env; arr objectAtIndex:i]).collect()
 }
 
 fn object_enumerator_inner_helper(env: &mut Environment, arr: id, vec: Vec<id>) -> id {

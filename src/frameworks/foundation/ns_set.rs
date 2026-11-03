@@ -13,7 +13,7 @@ use crate::abi::DotDotDot;
 use crate::environment::Environment;
 use crate::mem::MutPtr;
 use crate::objc::{
-    autorelease, id, msg, msg_class, nil, objc_classes, retain, ClassExports, HostObject,
+    autorelease, id, msg, msg_class, nil, objc_classes, release, retain, ClassExports, HostObject,
     NSZonePtr, TrivialHostObject,
 };
 
@@ -73,6 +73,44 @@ pub const CLASSES: ClassExports = objc_classes! {
 // NSCopying implementation
 - (id)copyWithZone:(NSZonePtr)_zone {
     retain(env, this)
+}
+
+// These work through objectEnumerator, for subclasses from the game.
+// Our private subclasses have faster versions.
+- (id)allObjects {
+    let objects: id = msg_class![env; NSMutableArray new];
+    let enumerator: id = msg![env; this objectEnumerator];
+    loop {
+        let next: id = msg![env; enumerator nextObject];
+        if next == nil {
+            break;
+        }
+        () = msg![env; objects addObject:next];
+    }
+    let res: id = msg![env; objects copy];
+    release(env, objects);
+    autorelease(env, res)
+}
+- (id)anyObject {
+    let enumerator: id = msg![env; this objectEnumerator];
+    msg![env; enumerator nextObject]
+}
+
+// NSFastEnumeration implementation
+- (NSUInteger)countByEnumeratingWithState:(MutPtr<NSFastEnumerationState>)state
+                                  objects:(MutPtr<id>)stackbuf
+                                    count:(NSUInteger)len {
+    // We assume that order in which objects are reported is consistent
+    // between calls!
+    let objects: id = msg![env; this allObjects];
+    let count: NSUInteger = msg![env; objects count];
+    fast_enumeration_helper(env, this, |env, idx| {
+        if idx < count {
+            msg![env; objects objectAtIndex:idx]
+        } else {
+            nil
+        }
+    }, state, stackbuf, len)
 }
 
 - (bool)containsObject:(id)object {
@@ -187,23 +225,6 @@ pub const CLASSES: ClassExports = objc_classes! {
 - (id)objectEnumerator { // NSEnumerator*
     let array: id = msg![env; this allObjects];
     msg![env; array objectEnumerator]
-}
-
-// NSFastEnumeration implementation
-- (NSUInteger)countByEnumeratingWithState:(MutPtr<NSFastEnumerationState>)state
-                                  objects:(MutPtr<id>)stackbuf
-                                    count:(NSUInteger)len {
-    // We assume that order in which objects are reported is consistent
-    // between calls!
-    let objects: id = msg![env; this allObjects];
-    let count: NSUInteger = msg![env; objects count];
-    fast_enumeration_helper(env, this, |env, idx| {
-        if idx < count {
-            msg![env; objects objectAtIndex:idx]
-        } else {
-            nil
-        }
-    }, state, stackbuf, len)
 }
 
 @end

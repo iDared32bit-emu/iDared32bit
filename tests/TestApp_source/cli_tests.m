@@ -4462,6 +4462,19 @@ int test_close() {
   return 0;
 }
 
+// Counts the objects fast enumeration gives, as a for-in loop would.
+static int count_by_fast_enumeration(id collection) {
+  NSFastEnumerationState state = {0};
+  id buffer[4];
+  int total = 0;
+  NSUInteger n;
+  while ((n = [collection countByEnumeratingWithState:&state
+                                              objects:buffer
+                                                count:4]))
+    total += n;
+  return total;
+}
+
 // A subclass, as games make, with its own storage.
 @interface CustomDictionary : NSDictionary {
   NSDictionary *_backing;
@@ -4507,6 +4520,11 @@ int test_NSDictionary_subclass() {
   // Inherited methods use the subclass's own storage.
   else if (![[dict valueForKey:key] isEqual:value])
     res = -3;
+  else if ([[dict allKeys] count] != 1 ||
+           ![[[dict allValues] objectAtIndex:0] isEqual:value] ||
+           ![[[dict objectEnumerator] nextObject] isEqual:value] ||
+           count_by_fast_enumeration(dict) != 1 || [dict description] == nil)
+    res = -4;
   [dict release];
   [pool drain];
   return res;
@@ -4586,7 +4604,10 @@ int test_class_cluster_subclasses() {
 
   CustomArray *array = [[CustomArray alloc] init];
   if ([array class] != [CustomArray class] || [array count] != 2 ||
-      ![array containsObject:[NSString stringWithUTF8String:"b"]])
+      ![array containsObject:[NSString stringWithUTF8String:"b"]] ||
+      count_by_fast_enumeration(array) != 2 ||
+      ![[[array objectEnumerator] nextObject]
+          isEqual:[NSString stringWithUTF8String:"a"]])
     res = -1;
   [array release];
 
@@ -4605,7 +4626,9 @@ int test_class_cluster_subclasses() {
   CustomSet *set = [[CustomSet alloc] init];
   if (res == 0 && ([set class] != [CustomSet class] || [set count] != 1 ||
                    ![set containsObject:[NSString stringWithUTF8String:"x"]] ||
-                   [set containsObject:[NSString stringWithUTF8String:"y"]]))
+                   [set containsObject:[NSString stringWithUTF8String:"y"]] ||
+                   [[set allObjects] count] != 1 || [set anyObject] == nil ||
+                   count_by_fast_enumeration(set) != 1))
     res = -3;
   [set release];
 

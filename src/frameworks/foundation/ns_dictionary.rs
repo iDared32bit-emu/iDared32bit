@@ -527,6 +527,74 @@ pub const CLASSES: ClassExports = objc_classes! {
     msg![env; this objectForKey:key]
 }
 
+// These work through the methods a subclass must provide, for subclasses from
+// the game. Our private subclasses have faster versions.
+- (id)description {
+    build_description(env, this)
+}
+- (id)allKeys {
+    let keys: id = msg_class![env; NSMutableArray new];
+    let enumerator: id = msg![env; this keyEnumerator];
+    loop {
+        let key: id = msg![env; enumerator nextObject];
+        if key == nil {
+            break;
+        }
+        () = msg![env; keys addObject:key];
+    }
+    let res: id = msg![env; keys copy];
+    release(env, keys);
+    autorelease(env, res)
+}
+- (id)allValues {
+    let keys: id = msg![env; this allKeys];
+    let count: NSUInteger = msg![env; keys count];
+    let values: id = msg_class![env; NSMutableArray new];
+    for i in 0..count {
+        let key: id = msg![env; keys objectAtIndex:i];
+        let value: id = msg![env; this objectForKey:key];
+        () = msg![env; values addObject:value];
+    }
+    let res: id = msg![env; values copy];
+    release(env, values);
+    autorelease(env, res)
+}
+- (id)allKeysForObject:(id)obj {
+    let keys: id = msg![env; this allKeys];
+    let count: NSUInteger = msg![env; keys count];
+    let res: id = msg_class![env; NSMutableArray new];
+    for i in 0..count {
+        let key: id = msg![env; keys objectAtIndex:i];
+        let value: id = msg![env; this objectForKey:key];
+        if msg![env; obj isEqual:value] {
+            () = msg![env; res addObject:key];
+        }
+    }
+    let res_imm: id = msg![env; res copy];
+    release(env, res);
+    autorelease(env, res_imm)
+}
+- (id)objectEnumerator { // NSEnumerator*
+    let values: id = msg![env; this allValues];
+    msg![env; values objectEnumerator]
+}
+// NSFastEnumeration implementation
+- (NSUInteger)countByEnumeratingWithState:(MutPtr<NSFastEnumerationState>)state
+                                  objects:(MutPtr<id>)stackbuf
+                                    count:(NSUInteger)len {
+    // As for our private subclasses, this assumes the keys come in the same
+    // order on each call.
+    let keys: id = msg![env; this allKeys];
+    let count: NSUInteger = msg![env; keys count];
+    fast_enumeration_helper(env, this, |env, idx| {
+        if idx < count {
+            msg![env; keys objectAtIndex:idx]
+        } else {
+            nil
+        }
+    }, state, stackbuf, len)
+}
+
 - (NSUInteger)hash {
     // TODO: define better hash
     msg![env; this count]
@@ -1058,12 +1126,10 @@ fn build_description(env: &mut Environment, dict: id) -> id {
     let prefix: id = from_rust_string(env, "{\n".to_string());
     () = msg![env; desc appendString:prefix];
     release(env, prefix);
-    let keys: Vec<id> = env
-        .objc
-        .borrow_mut::<DictionaryHostObject>(dict)
-        .iter_keys()
-        .collect();
-    for key in keys {
+    let keys: id = msg![env; dict allKeys];
+    let count: NSUInteger = msg![env; keys count];
+    for i in 0..count {
+        let key: id = msg![env; keys objectAtIndex:i];
         let key_desc: id = msg![env; key description];
         let value: id = msg![env; dict objectForKey:key];
         let val_desc: id = msg![env; value description];
