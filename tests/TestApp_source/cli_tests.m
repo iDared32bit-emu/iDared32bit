@@ -7523,6 +7523,16 @@ int test_NSKeyedArchiver_encodeIntForKey() {
   return g_coder_not_keyed ? -10 : 0;
 }
 
+int test_NSKeyedArchiver_NSDate() {
+  NSAutoreleasePool *pool = [NSAutoreleasePool new];
+  NSDate *date = [NSDate dateWithTimeIntervalSinceReferenceDate:123456.75];
+  NSData *data = [NSKeyedArchiver archivedDataWithRootObject:date];
+  NSDate *copy = [NSKeyedUnarchiver unarchiveObjectWithData:data];
+  int res = [copy timeIntervalSinceReferenceDate] == 123456.75 ? 0 : -1;
+  [pool drain];
+  return res;
+}
+
 int test_NSKeyedArchiver_NSKeyedUnarchiver() {
   NSAutoreleasePool *pool = [NSAutoreleasePool new];
   char buffer[100];
@@ -8681,6 +8691,7 @@ struct {
     FUNC_DEF(test_RespondsToSelector),
     FUNC_DEF(test_class_getInstanceMethod),
     FUNC_DEF(test_NSKeyedArchiver_encodeIntForKey),
+    FUNC_DEF(test_NSKeyedArchiver_NSDate),
     FUNC_DEF(test_NSKeyedArchiver_NSKeyedUnarchiver),
     FUNC_DEF(test_NSKeyedArchiver_NSDictionary_of_NSArray_of_NSStrings),
     FUNC_DEF(test_AutoreleasePool),

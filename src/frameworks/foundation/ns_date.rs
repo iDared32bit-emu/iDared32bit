@@ -15,6 +15,7 @@ use crate::objc::{
     NSZonePtr,
 };
 
+use crate::frameworks::foundation::ns_keyed_archiver::get_value_to_encode_for_current_key;
 use crate::frameworks::foundation::ns_keyed_unarchiver::decode_current_date;
 use std::ops::{Add, Sub};
 use std::time::{Duration, SystemTime};
@@ -150,6 +151,13 @@ pub const CLASSES: ClassExports = objc_classes! {
     release(env, this);
     // Note: Assuming NSKeyedUnarchiver as coder here
     decode_current_date(env, coder)
+}
+
+- (())encodeWithCoder:(id)coder {
+    // Note: Assuming NSKeyedArchiver as coder here
+    let time = env.objc.borrow::<NSDateHostObject>(this).time_interval;
+    let scope = get_value_to_encode_for_current_key(env, coder);
+    scope.insert("NS.time".to_string(), plist::Value::Real(time));
 }
 
 - (NSTimeInterval)timeIntervalSinceDate:(id)anotherDate {
