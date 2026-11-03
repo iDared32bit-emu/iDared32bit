@@ -13,6 +13,12 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 @implementation NSCoder: NSObject
 // This is an abstract class
+
+// Only keyed coders (NSKeyedArchiver and NSKeyedUnarchiver) say yes.
+- (bool)allowsKeyedCoding {
+    false
+}
+
 @end
 
 };

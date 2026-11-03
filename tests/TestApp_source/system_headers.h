@@ -369,6 +369,7 @@ typedef enum {
 @end
 
 @interface NSCoder : NSObject
+- (BOOL)allowsKeyedCoding;
 - (void)encodeBytes:(const uint8_t *)bytes
              length:(NSUInteger)length
              forKey:(NSString *)key;

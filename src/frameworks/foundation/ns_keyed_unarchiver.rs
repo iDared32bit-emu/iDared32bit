@@ -83,6 +83,10 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 // TODO: other init methods.
 
+- (bool)allowsKeyedCoding {
+    true
+}
+
 - (id)initForReadingWithData:(id)data { // NSData *
     if data == nil {
         return nil;

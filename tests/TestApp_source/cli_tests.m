@@ -7470,6 +7470,9 @@ int test_NSInvocation_pointer() {
 }
 @end
 
+// Set if a keyed coder says it doesn't allow keyed coding.
+static int g_coder_not_keyed = 0;
+
 @interface IntCoderObject : NSObject {
 @public
   int value;
@@ -7484,11 +7487,15 @@ int test_NSInvocation_pointer() {
 }
 
 - (void)encodeWithCoder:(NSCoder *)coder {
+  if (![coder allowsKeyedCoding])
+    g_coder_not_keyed = 1;
   [coder encodeInt:value forKey:[NSString stringWithUTF8String:"value"]];
 }
 
 - (instancetype)initWithCoder:(NSCoder *)coder {
   self = [super init];
+  if (![coder allowsKeyedCoding])
+    g_coder_not_keyed = 1;
   value = [coder decodeIntForKey:[NSString stringWithUTF8String:"value"]];
   return self;
 }
@@ -7513,7 +7520,7 @@ int test_NSKeyedArchiver_encodeIntForKey() {
   }
 
   [pool drain];
-  return 0;
+  return g_coder_not_keyed ? -10 : 0;
 }
 
 int test_NSKeyedArchiver_NSKeyedUnarchiver() {
