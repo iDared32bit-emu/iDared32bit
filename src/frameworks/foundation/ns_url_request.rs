@@ -83,19 +83,6 @@ pub const CLASSES: ClassExports = objc_classes! {
         timeout_interval,
     );
 
-    // Preserving old behaviour
-    if !env.options.network_access {
-        log_dbg!(
-            "Network access is disabled, [(NSURLRequest *){:?} initWithURL:{} cachePolicy:{} timeoutInterval:{}] -> nil",
-            this,
-            to_rust_string(env, url_desc),
-            cache_policy,
-            timeout_interval,
-        );
-        release(env, this);
-        return nil;
-    }
-
     let url_copy = msg![env; url copy];
     env.objc.borrow_mut::<NSURLRequestHostObject>(this).url = url_copy;
     env.objc.borrow_mut::<NSURLRequestHostObject>(this).cache_policy = cache_policy;
@@ -114,17 +101,6 @@ pub const CLASSES: ClassExports = objc_classes! {
         this,
         to_rust_string(env, url_desc)
     );
-
-    // Preserving old behaviour
-    if !env.options.network_access {
-        log_dbg!(
-            "Network access is disabled, [(NSURLRequest *){:?} initWithURL:{}] -> nil",
-            this,
-            to_rust_string(env, url_desc)
-        );
-        release(env, this);
-        return nil;
-    }
 
     let url_copy = msg![env; url copy];
     env.objc.borrow_mut::<NSURLRequestHostObject>(this).url = url_copy;
@@ -151,6 +127,18 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 - (NSTimeInterval)timeoutInterval {
     env.objc.borrow::<NSURLRequestHostObject>(this).timeout_interval
+}
+
+// NSCopying implementation
+- (id)copyWithZone:(NSZonePtr)_zone {
+    let class = env.objc.get_known_class("NSURLRequest", &mut env.mem);
+    copy_request(env, this, class)
+}
+
+// NSMutableCopying implementation
+- (id)mutableCopyWithZone:(NSZonePtr)_zone {
+    let class = env.objc.get_known_class("NSMutableURLRequest", &mut env.mem);
+    copy_request(env, this, class)
 }
 
 - (())dealloc {
@@ -226,3 +214,28 @@ pub const CLASSES: ClassExports = objc_classes! {
 @end
 
 };
+
+/// A new request of `class`, with copies of `request`'s fields.
+fn copy_request(env: &mut crate::Environment, request: id, class: crate::objc::Class) -> id {
+    let &NSURLRequestHostObject {
+        url,
+        cache_policy,
+        timeout_interval,
+        http_method,
+        http_body,
+        http_header_fields,
+    } = env.objc.borrow(request);
+    let url: id = msg![env; url copy];
+    let http_method: id = msg![env; http_method copy];
+    let http_body: id = msg![env; http_body copy];
+    let http_header_fields: id = msg![env; http_header_fields mutableCopy];
+    let host_object = Box::new(NSURLRequestHostObject {
+        url,
+        cache_policy,
+        timeout_interval,
+        http_method,
+        http_body,
+        http_header_fields,
+    });
+    env.objc.alloc_object(class, host_object, &mut env.mem)
+}

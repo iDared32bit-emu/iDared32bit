@@ -759,6 +759,81 @@ int test_NSAssertionHandler() {
   return 0;
 }
 
+@interface URLConnectionDelegate : NSObject {
+@public
+  int failures;
+  NSInteger code;
+}
+@end
+
+@implementation URLConnectionDelegate
+- (void)connection:(NSURLConnection *)connection
+    didFailWithError:(NSError *)error {
+  failures++;
+  code = [error code];
+}
+@end
+
+#ifndef DEFINE_ME_WHEN_BUILDING_ON_MACOS
+// A background thread, since the main thread's run loop needs a window.
+void *url_connection_pthread(void *arg) {
+  NSAutoreleasePool *pool = [NSAutoreleasePool new];
+  int *res = arg;
+  NSURLRequest *request = [NSURLRequest
+      requestWithURL:[NSURL
+                         URLWithString:[NSString stringWithUTF8String:
+                                                     "http://example.com/"]]];
+  NSMutableURLRequest *copy = [request mutableCopy];
+  if (request == nil || [copy class] != [NSMutableURLRequest class] ||
+      ![[copy URL] isEqual:[request URL]])
+    *res = -1;
+  [copy release];
+
+  // Without a network, the delegate hears of the failure from the run loop.
+  URLConnectionDelegate *delegate = [URLConnectionDelegate new];
+  NSURLConnection *connection =
+      [[NSURLConnection alloc] initWithRequest:request delegate:delegate];
+  if (*res == 0 && (connection == nil || delegate->failures != 0))
+    *res = -2;
+  NSRunLoop *runLoop = [NSRunLoop currentRunLoop];
+  [runLoop runMode:NSDefaultRunLoopMode
+        beforeDate:[NSDate dateWithTimeIntervalSinceNow:1]];
+  if (*res == 0 && (delegate->failures != 1 || delegate->code != -1009))
+    *res = -3;
+  [connection release];
+
+  // A cancelled connection tells its delegate nothing.
+  URLConnectionDelegate *delegate2 = [URLConnectionDelegate new];
+  connection = [[NSURLConnection alloc] initWithRequest:request
+                                               delegate:delegate2];
+  [connection cancel];
+  [runLoop runMode:NSDefaultRunLoopMode
+        beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.1]];
+  if (*res == 0 && delegate2->failures != 0)
+    *res = -4;
+  [connection release];
+
+  [delegate release];
+  [delegate2 release];
+  [pool release];
+  return NULL;
+}
+#endif
+
+int test_NSURLConnection_offline() {
+#ifdef DEFINE_ME_WHEN_BUILDING_ON_MACOS
+  // On macOS, this would really go to the network.
+  return 0;
+#else
+  int res = 0;
+  pthread_t p;
+  if (pthread_create(&p, NULL, url_connection_pthread, &res) != 0 ||
+      pthread_join(p, NULL) != 0)
+    return -10;
+  return res;
+#endif
+}
+
 int test_NSNumber_objCType() {
   // The type a number is stored as, not always the type it was made with.
   struct {
@@ -8457,6 +8532,7 @@ struct {
     FUNC_DEF(test_NSObject_self),
     FUNC_DEF(test_class_copyPropertyList),
     FUNC_DEF(test_NSAssertionHandler),
+    FUNC_DEF(test_NSURLConnection_offline),
     FUNC_DEF(test_NSNumber_objCType),
     FUNC_DEF(test_valueForKey),
     FUNC_DEF(test_NSData_description),

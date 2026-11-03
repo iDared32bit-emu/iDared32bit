@@ -306,6 +306,24 @@ typedef double NSTimeInterval;
 - (NSString *)path;
 @end
 
+@interface NSURLRequest : NSObject
++ (instancetype)requestWithURL:(NSURL *)url;
+- (NSURL *)URL;
+- (id)mutableCopy;
+@end
+
+@interface NSMutableURLRequest : NSURLRequest
+@end
+
+@interface NSError : NSObject
+- (NSInteger)code;
+@end
+
+@interface NSURLConnection : NSObject
+- (instancetype)initWithRequest:(NSURLRequest *)request delegate:(id)delegate;
+- (void)cancel;
+@end
+
 NSString *NSHomeDirectory(void);
 extern NSString *const NSFileType;
 extern NSString *const NSFileTypeDirectory;

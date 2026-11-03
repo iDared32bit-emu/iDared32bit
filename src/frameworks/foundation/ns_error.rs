@@ -16,7 +16,7 @@ pub type NSErrorDomain = id;
 pub const NSCocoaErrorDomain: &str = "NSCocoaErrorDomain";
 pub const NSOSStatusErrorDomain: &str = "NSOSStatusErrorDomain";
 
-const NSLocalizedDescriptionKey: &str = "NSLocalizedDescriptionKey";
+pub(super) const NSLocalizedDescriptionKey: &str = "NSLocalizedDescriptionKey";
 const NSLocalizedFailureReasonErrorKey: &str = "NSLocalizedFailureReasonErrorKey";
 
 pub const NSFileReadNoSuchFileError: NSInteger = 260;
