@@ -17,6 +17,7 @@ use crate::Environment;
 
 pub mod _nib_archive_decoder;
 pub mod ns_array;
+pub mod ns_assertion_handler;
 pub mod ns_autorelease_pool;
 pub mod ns_bundle;
 pub mod ns_calendar;
@@ -74,6 +75,7 @@ pub const DYLIB: crate::dyld::HostDylib = crate::dyld::HostDylib {
     class_exports: &[
         _nib_archive_decoder::CLASSES,
         ns_array::CLASSES,
+        ns_assertion_handler::CLASSES,
         ns_autorelease_pool::CLASSES,
         ns_bundle::CLASSES,
         ns_calendar::CLASSES,
@@ -142,6 +144,7 @@ pub const DYLIB: crate::dyld::HostDylib = crate::dyld::HostDylib {
 
 #[derive(Default)]
 pub struct State {
+    ns_assertion_handler: ns_assertion_handler::State,
     ns_bundle: ns_bundle::State,
     ns_file_manager: ns_file_manager::State,
     ns_key_value_observing: ns_key_value_observing::State,

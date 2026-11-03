@@ -247,6 +247,10 @@ typedef enum {
 + (NSNull *)null;
 @end
 
+@interface NSAssertionHandler : NSObject
++ (NSAssertionHandler *)currentHandler;
+@end
+
 @interface NSObject (NSKeyValueCoding)
 - (id)valueForKey:(id)key;
 - (NSDictionary *)dictionaryWithValuesForKeys:(NSArray *)keys;

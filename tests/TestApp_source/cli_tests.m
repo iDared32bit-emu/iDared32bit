@@ -751,6 +751,14 @@ int test_class_copyPropertyList() {
 }
 @end
 
+int test_NSAssertionHandler() {
+  // A failure would end the test app, so only the handler itself is checked.
+  NSAssertionHandler *handler = [NSAssertionHandler currentHandler];
+  if (handler == nil || [NSAssertionHandler currentHandler] != handler)
+    return -1;
+  return 0;
+}
+
 int test_NSNumber_objCType() {
   // The type a number is stored as, not always the type it was made with.
   struct {
@@ -8448,6 +8456,7 @@ struct {
     FUNC_DEF(test_vsnprintf),
     FUNC_DEF(test_NSObject_self),
     FUNC_DEF(test_class_copyPropertyList),
+    FUNC_DEF(test_NSAssertionHandler),
     FUNC_DEF(test_NSNumber_objCType),
     FUNC_DEF(test_valueForKey),
     FUNC_DEF(test_NSData_description),
