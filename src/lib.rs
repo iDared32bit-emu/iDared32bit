@@ -63,11 +63,14 @@ use std::path::PathBuf;
 pub use touchHLE_version::*;
 
 // Rust's default panic handler prints to stderr, but on Android and iOS
-// standalone (no debugger attached) that just gets discarded, so we set a
-// custom hook to make debugging easier.
-#[cfg(any(target_os = "android", target_os = "ios"))]
+// standalone (no debugger attached) that just gets discarded, and elsewhere
+// it doesn't reach the log file, so we set a custom hook to make debugging
+// easier.
 fn install_panic_hook() {
-    std::panic::set_hook(Box::new(|info| {
+    // Kept on desktop for stderr, where it can also print a backtrace.
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    let default_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
         let payload = if let Some(s) = info.payload().downcast_ref::<&str>() {
             s
         } else if let Some(s) = info.payload().downcast_ref::<String>() {
@@ -75,10 +78,18 @@ fn install_panic_hook() {
         } else {
             "(non-string payload)"
         };
-        if let Some(location) = info.location() {
-            echo!("Panic at {}: {}", location, payload);
+        let message = if let Some(location) = info.location() {
+            format!("Panic at {location}: {payload}")
         } else {
-            echo!("Panic: {}", payload);
+            format!("Panic: {payload}")
+        };
+        #[cfg(any(target_os = "android", target_os = "ios"))]
+        echo!("{}", message);
+        #[cfg(not(any(target_os = "android", target_os = "ios")))]
+        {
+            default_hook(info);
+            use std::io::Write;
+            let _ = writeln!(log::get_log_file(), "{message}");
         }
     }));
 }
@@ -139,6 +150,10 @@ Special options:
 ";
 
 pub fn main<T: Iterator<Item = String>>(mut args: T) -> Result<(), String> {
+    // Android and iOS install it in SDL_main().
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    install_panic_hook();
+
     echo!(
         "iDared 32bit {}{}{} — https://idared32bit-emu.com/ (based on touchHLE)",
         branding(),
