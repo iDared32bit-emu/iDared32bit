@@ -5690,16 +5690,17 @@ int test_CGContext_paths() {
   if (!IS(3, 3, 0, 255, 0, 255) || !IS(0, 0, 0, 0, 0, 0))
     return -2;
 
-  // A rounded rectangle, made of arcs.
+  // A rounded rectangle made of arcs, so round it's a circle: the corner
+  // pixels are wholly outside it.
   memset(pixels, 0, sizeof(pixels));
   CGContextMoveToPoint(c, 4, 0);
-  CGContextAddArcToPoint(c, 8, 0, 8, 8, 3);
-  CGContextAddArcToPoint(c, 8, 8, 0, 8, 3);
-  CGContextAddArcToPoint(c, 0, 8, 0, 0, 3);
-  CGContextAddArcToPoint(c, 0, 0, 8, 0, 3);
+  CGContextAddArcToPoint(c, 8, 0, 8, 8, 4);
+  CGContextAddArcToPoint(c, 8, 8, 0, 8, 4);
+  CGContextAddArcToPoint(c, 0, 8, 0, 0, 4);
+  CGContextAddArcToPoint(c, 0, 0, 8, 0, 4);
   CGContextClosePath(c);
   CGContextFillPath(c);
-  if (!IS(3, 3, 0, 255, 0, 255) || !IS(4, 0, 0, 255, 0, 255) ||
+  if (!IS(3, 3, 0, 255, 0, 255) || !IS(4, 1, 0, 255, 0, 255) ||
       !IS(0, 0, 0, 0, 0, 0))
     return -3;
 
