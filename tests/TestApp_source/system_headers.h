@@ -233,6 +233,11 @@ typedef enum {
 + (NSNumber *)numberWithInt:(int)value;
 + (NSNumber *)numberWithFloat:(float)value;
 + (NSNumber *)numberWithBool:(bool)value;
++ (NSNumber *)numberWithDouble:(double)value;
++ (NSNumber *)numberWithLongLong:(long long)value;
++ (NSNumber *)numberWithShort:(short)value;
++ (NSNumber *)numberWithUnsignedInt:(unsigned int)value;
+- (const char *)objCType;
 - (int)intValue;
 - (float)floatValue;
 - (BOOL)boolValue;

@@ -17,13 +17,20 @@ use crate::frameworks::core_foundation::cf_number::{
 use crate::frameworks::core_graphics::{CGPoint, CGRect, CGSize};
 use crate::frameworks::foundation::ns_keyed_archiver::get_value_to_encode_for_current_key;
 use crate::frameworks::foundation::NSInteger;
-use crate::mem::{ConstVoidPtr, MutVoidPtr};
+use crate::mem::{ConstPtr, ConstVoidPtr, MutVoidPtr};
 use crate::objc::{
     autorelease, id, msg, msg_class, nil, objc_classes, release, retain, Class, ClassExports,
     HostObject, NSZonePtr,
 };
 use crate::Environment;
 use std::cmp::Ordering;
+use std::collections::HashMap;
+
+#[derive(Default)]
+pub struct State {
+    /// `objCType` strings, allocated once each.
+    objc_type_strings: HashMap<u8, ConstPtr<u8>>,
+}
 
 #[derive(Debug)]
 pub(super) enum NSValueHostObject {
@@ -412,6 +419,31 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 - (f32)floatValue {
     env.objc.borrow::<NSNumberHostObject>(this).as_float()
+}
+
+// The type the value is stored as. As on iOS, this isn't always the type it
+// was made with: booleans are "c", and unsigned ints are "q", for example.
+- (ConstPtr<u8>)objCType {
+    let type_ = match env.objc.borrow::<NSNumberHostObject>(this) {
+        NSNumberHostObject::Bool(_) | NSNumberHostObject::Char(_) => b'c',
+        NSNumberHostObject::Short(_) => b's',
+        NSNumberHostObject::UnsignedShort(_) | NSNumberHostObject::Int(_) => b'i',
+        NSNumberHostObject::UnsignedInt(_) | NSNumberHostObject::LongLong(_) => b'q',
+        NSNumberHostObject::UnsignedLongLong(_) => b'Q',
+        NSNumberHostObject::Float(_) => b'f',
+        NSNumberHostObject::Double(_) => b'd',
+    };
+    let state = &mut env.framework_state.foundation.ns_value;
+    if let Some(&string) = state.objc_type_strings.get(&type_) {
+        return string;
+    }
+    let string = env.mem.alloc_and_write_cstr(&[type_]).cast_const();
+    env.framework_state
+        .foundation
+        .ns_value
+        .objc_type_strings
+        .insert(type_, string);
+    string
 }
 
 - (f64)doubleValue {

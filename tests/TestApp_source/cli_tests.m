@@ -751,6 +751,27 @@ int test_class_copyPropertyList() {
 }
 @end
 
+int test_NSNumber_objCType() {
+  // The type a number is stored as, not always the type it was made with.
+  struct {
+    NSNumber *number;
+    const char *type;
+  } cases[] = {
+      {[NSNumber numberWithBool:YES], "c"},
+      {[NSNumber numberWithShort:-2], "s"},
+      {[NSNumber numberWithInt:3], "i"},
+      {[NSNumber numberWithUnsignedInt:4], "q"},
+      {[NSNumber numberWithLongLong:5], "q"},
+      {[NSNumber numberWithFloat:1.5], "f"},
+      {[NSNumber numberWithDouble:2.5], "d"},
+  };
+  for (int i = 0; i < (int)(sizeof(cases) / sizeof(cases[0])); i++) {
+    if (strcmp([cases[i].number objCType], cases[i].type) != 0)
+      return -1 - i;
+  }
+  return 0;
+}
+
 int test_valueForKey() {
   NSAutoreleasePool *pool = [NSAutoreleasePool new];
   KVCGetterTest *obj = [KVCGetterTest new];
@@ -8427,6 +8448,7 @@ struct {
     FUNC_DEF(test_vsnprintf),
     FUNC_DEF(test_NSObject_self),
     FUNC_DEF(test_class_copyPropertyList),
+    FUNC_DEF(test_NSNumber_objCType),
     FUNC_DEF(test_valueForKey),
     FUNC_DEF(test_NSData_description),
     FUNC_DEF(test_CC_SHA256),
