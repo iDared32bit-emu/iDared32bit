@@ -4462,6 +4462,56 @@ int test_close() {
   return 0;
 }
 
+// A subclass, as games make, with its own storage.
+@interface CustomDictionary : NSDictionary {
+  NSDictionary *_backing;
+}
+@end
+
+@implementation CustomDictionary
+- (instancetype)init {
+  if ((self = [super init])) {
+    NSString *key = [NSString stringWithUTF8String:"key"];
+    NSString *value = [NSString stringWithUTF8String:"value"];
+    _backing = [[NSDictionary
+        dictionaryWithObjects:[NSArray arrayWithObjects:value, nil]
+                      forKeys:[NSArray arrayWithObjects:key, nil]] retain];
+  }
+  return self;
+}
+- (NSUInteger)count {
+  return [_backing count];
+}
+- (id)objectForKey:(id)key {
+  return [_backing objectForKey:key];
+}
+- (id)keyEnumerator {
+  return [_backing keyEnumerator];
+}
+- (void)dealloc {
+  [_backing release];
+  [super dealloc];
+}
+@end
+
+int test_NSDictionary_subclass() {
+  NSAutoreleasePool *pool = [NSAutoreleasePool new];
+  CustomDictionary *dict = [[CustomDictionary alloc] init];
+  NSString *key = [NSString stringWithUTF8String:"key"];
+  NSString *value = [NSString stringWithUTF8String:"value"];
+  int res = 0;
+  if ([dict class] != [CustomDictionary class])
+    res = -1;
+  else if ([dict count] != 1 || ![[dict objectForKey:key] isEqual:value])
+    res = -2;
+  // Inherited methods use the subclass's own storage.
+  else if (![[dict valueForKey:key] isEqual:value])
+    res = -3;
+  [dict release];
+  [pool drain];
+  return res;
+}
+
 int test_NSDictionary_values() {
   NSAutoreleasePool *pool = [NSAutoreleasePool new];
   NSString *a = [NSString stringWithUTF8String:"a"];
@@ -8323,6 +8373,7 @@ struct {
     FUNC_DEF(test_NSPort),
     FUNC_DEF(test_NSRunLoop_runMode),
     FUNC_DEF(test_NSCalendar),
+    FUNC_DEF(test_NSDictionary_subclass),
     FUNC_DEF(test_NSDictionary_values),
     FUNC_DEF(test_CFMutableDictionary_NullCallbacks),
     FUNC_DEF(test_CFMutableDictionary_CustomCallbacks_PrimitiveTypes),
