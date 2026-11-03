@@ -41,6 +41,9 @@ struct NSThreadHostObject {
     /// `NSMutableDictionary*`
     thread_dictionary: id,
     owned: bool,
+    /// Whether `start` was called. The thread keeps the object alive while
+    /// it runs, as on iOS, so it can be released right after `start`.
+    started: bool,
     /// Whether `main` has returned, for a thread started by `start`.
     finished: bool,
     /// Set by `cancel`. The thread itself checks this with `isCancelled`.
@@ -63,6 +66,7 @@ pub const CLASSES: ClassExports = objc_classes! {
         object: nil,
         thread_dictionary: nil,
         owned: false,
+        started: false,
         finished: false,
         cancelled: false,
         stack_size: Mem::SECONDARY_THREAD_DEFAULT_STACK_SIZE,
@@ -147,6 +151,8 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (())start {
+    env.objc.borrow_mut::<NSThreadHostObject>(this).started = true;
+    retain(env, this);
     let symb = "__touchHLE_NSThreadInvocationHelper";
     let hf: HostFunction = &(_touchHLE_NSThreadInvocationHelper as fn(&mut Environment, _) -> _);
     let gf = env
@@ -302,6 +308,7 @@ fn finish_ns_thread(env: &mut Environment, ns_thread_obj: id) {
         target,
         object,
         owned,
+        started,
         ..
     } = env.objc.borrow(ns_thread_obj);
     // The objects target and argument are retained during the execution
@@ -316,6 +323,10 @@ fn finish_ns_thread(env: &mut Environment, ns_thread_obj: id) {
     if owned {
         // Releasing only if the object was owned
         // e.g. created with `detachNewThreadSelector:toTarget:withObject:`
+        release(env, ns_thread_obj);
+    }
+    if started {
+        // The retain from `start`.
         release(env, ns_thread_obj);
     }
 }
