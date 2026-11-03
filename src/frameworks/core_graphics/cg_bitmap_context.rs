@@ -11,7 +11,7 @@ use super::cg_color_space::{
     CGColorSpaceHostObject, CGColorSpaceRef,
 };
 use super::cg_context::{
-    blend_mode_name, kCGBlendModeCopy, kCGBlendModeDarken, kCGBlendModeLighten,
+    blend_mode_name, kCGBlendModeClear, kCGBlendModeCopy, kCGBlendModeDarken, kCGBlendModeLighten,
     kCGBlendModeMultiply, kCGBlendModeNormal, kCGBlendModeScreen, kCGBlendModeSourceAtop,
     kCGBlendModeSourceIn, kCGBlendModeSourceOut, CGBlendMode, CGContextHostObject, CGContextRef,
     CGContextSubclass,
@@ -449,7 +449,11 @@ fn put_pixel(
 
     // Blending like this must be done in linear RGB, so this must come before
     // gamma encoding.
-    let (r, g, b, a) = if blend {
+    let (r, g, b, a) = if blend && blend_mode == kCGBlendModeClear {
+        // Whatever is drawn, the result is transparent (black without
+        // alpha). This ignores how much of the pixel a shape covers too.
+        (0.0, 0.0, 0.0, 0.0)
+    } else if blend {
         match data.alpha_info {
             kCGImageAlphaLast | kCGImageAlphaFirst => blend_straight(bg_pixel, pixel, blend_mode),
             kCGImageAlphaPremultipliedLast | kCGImageAlphaPremultipliedFirst => {

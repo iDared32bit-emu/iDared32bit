@@ -5723,6 +5723,16 @@ int test_CGContext_paths() {
   CGGradientRelease(gradient);
   if (PIXEL(0, 3)[0] > 64 || PIXEL(7, 3)[0] < 192 || PIXEL(7, 3)[3] != 255)
     return -5;
+
+  // Clearing a rectangle.
+  CGContextSetRGBFillColor(c, 1, 0, 0, 1);
+  CGContextFillRect(c, CGRectMake(0, 0, 8, 8));
+  CGContextSetBlendMode(c, kCGBlendModeClear);
+  CGContextAddRect(c, CGRectMake(2, 2, 4, 4));
+  CGContextFillPath(c);
+  CGContextSetBlendMode(c, kCGBlendModeNormal);
+  if (!IS(3, 3, 0, 0, 0, 0) || !IS(0, 0, 255, 0, 0, 255))
+    return -7;
 #undef IS
 #undef PIXEL
 

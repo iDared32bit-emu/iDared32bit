@@ -461,6 +461,7 @@ typedef enum {
   kCGBlendModeOverlay = 3,
   kCGBlendModeDarken = 4,
   kCGBlendModeLighten = 5,
+  kCGBlendModeClear = 16,
 } CGBlendMode;
 
 #define kCGImageAlphaPremultipliedLast 1
