@@ -499,6 +499,8 @@ fn substitute_classes(
     if !(name.starts_with("AdMob")
         || name.starts_with("AdWhirl")
         || name.starts_with("AltAds")
+        || name.starts_with("AS_") // Burstly's internal classes
+        || name.starts_with("Burstly")
         || name.starts_with("FB") // Facebook
         || name.starts_with("Flurry")
         || name.starts_with("Mobclix")
