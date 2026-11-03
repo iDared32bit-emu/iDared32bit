@@ -439,6 +439,9 @@ typedef struct _CGColor *CGColorRef;
 
 CGColorRef CGColorCreateGenericRGB(CGFloat red, CGFloat green, CGFloat blue,
                                    CGFloat alpha);
+size_t CGColorGetNumberOfComponents(CGColorRef color);
+const CGFloat *CGColorGetComponents(CGColorRef color);
+void CGColorRelease(CGColorRef color);
 
 // `CGColorSpace.h`
 
@@ -477,6 +480,32 @@ void CGContextSetBlendMode(CGContextRef c, CGBlendMode mode);
 void CGContextTranslateCTM(CGContextRef c, CGFloat tx, CGFloat ty);
 void CGContextScaleCTM(CGContextRef c, CGFloat sx, CGFloat sy);
 void CGContextRotateCTM(CGContextRef c, CGFloat angle);
+void CGContextBeginPath(CGContextRef c);
+void CGContextMoveToPoint(CGContextRef c, CGFloat x, CGFloat y);
+void CGContextAddRect(CGContextRef c, CGRect rect);
+void CGContextAddEllipseInRect(CGContextRef c, CGRect rect);
+void CGContextAddArcToPoint(CGContextRef c, CGFloat x1, CGFloat y1, CGFloat x2,
+                            CGFloat y2, CGFloat radius);
+void CGContextClosePath(CGContextRef c);
+void CGContextFillPath(CGContextRef c);
+void CGContextSetRGBStrokeColor(CGContextRef c, CGFloat r, CGFloat g, CGFloat b,
+                                CGFloat a);
+void CGContextSetLineWidth(CGContextRef c, CGFloat width);
+void CGContextStrokeLineSegments(CGContextRef c, const CGPoint *points,
+                                 size_t count);
+
+// `CGGradient.h`
+
+typedef struct _CGGradient *CGGradientRef;
+
+CGGradientRef CGGradientCreateWithColorComponents(CGColorSpaceRef space,
+                                                  const CGFloat *components,
+                                                  const CGFloat *locations,
+                                                  size_t count);
+void CGGradientRelease(CGGradientRef gradient);
+void CGContextDrawLinearGradient(CGContextRef c, CGGradientRef gradient,
+                                 CGPoint startPoint, CGPoint endPoint,
+                                 unsigned int options);
 
 // `CGFont.h` and `CGContext.h` text functions.
 

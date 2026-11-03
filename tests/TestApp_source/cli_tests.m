@@ -5661,6 +5661,83 @@ int test_NSString_stringByReplacingOccurrencesOfString_options_range() {
   return 0;
 }
 
+// Each shape is symmetric top to bottom, so the result doesn't depend on
+// which way up the bitmap's rows are.
+int test_CGContext_paths() {
+  uint8_t pixels[8 * 8 * 4];
+  CGColorSpaceRef rgb = CGColorSpaceCreateDeviceRGB();
+  CGContextRef c = CGBitmapContextCreate(pixels, 8, 8, 8, 8 * 4, rgb,
+                                         kCGImageAlphaPremultipliedLast);
+#define PIXEL(x, y) (&pixels[((y) * 8 + (x)) * 4])
+#define IS(x, y, r, g, b, a)                                                   \
+  (PIXEL(x, y)[0] == (r) && PIXEL(x, y)[1] == (g) && PIXEL(x, y)[2] == (b) &&  \
+   PIXEL(x, y)[3] == (a))
+
+  // A filled rectangle.
+  memset(pixels, 0, sizeof(pixels));
+  CGContextSetRGBFillColor(c, 1, 0, 0, 1);
+  CGContextBeginPath(c);
+  CGContextAddRect(c, CGRectMake(2, 2, 4, 4));
+  CGContextFillPath(c);
+  if (!IS(3, 3, 255, 0, 0, 255) || !IS(0, 0, 0, 0, 0, 0))
+    return -1;
+
+  // A filled circle.
+  memset(pixels, 0, sizeof(pixels));
+  CGContextSetRGBFillColor(c, 0, 1, 0, 1);
+  CGContextAddEllipseInRect(c, CGRectMake(0, 0, 8, 8));
+  CGContextFillPath(c);
+  if (!IS(3, 3, 0, 255, 0, 255) || !IS(0, 0, 0, 0, 0, 0))
+    return -2;
+
+  // A rounded rectangle, made of arcs.
+  memset(pixels, 0, sizeof(pixels));
+  CGContextMoveToPoint(c, 4, 0);
+  CGContextAddArcToPoint(c, 8, 0, 8, 8, 3);
+  CGContextAddArcToPoint(c, 8, 8, 0, 8, 3);
+  CGContextAddArcToPoint(c, 0, 8, 0, 0, 3);
+  CGContextAddArcToPoint(c, 0, 0, 8, 0, 3);
+  CGContextClosePath(c);
+  CGContextFillPath(c);
+  if (!IS(3, 3, 0, 255, 0, 255) || !IS(4, 0, 0, 255, 0, 255) ||
+      !IS(0, 0, 0, 0, 0, 0))
+    return -3;
+
+  // A line two pixels wide across the middle.
+  memset(pixels, 0, sizeof(pixels));
+  CGContextSetRGBStrokeColor(c, 0, 0, 1, 1);
+  CGContextSetLineWidth(c, 2);
+  CGPoint line[] = {{0, 4}, {8, 4}};
+  CGContextStrokeLineSegments(c, line, 2);
+  if (!IS(4, 3, 0, 0, 255, 255) || !IS(4, 4, 0, 0, 255, 255) ||
+      !IS(4, 1, 0, 0, 0, 0))
+    return -4;
+
+  // A gradient from black on the left to white on the right.
+  memset(pixels, 0, sizeof(pixels));
+  CGFloat components[] = {0, 0, 0, 1, 1, 1, 1, 1};
+  CGGradientRef gradient =
+      CGGradientCreateWithColorComponents(rgb, components, NULL, 2);
+  CGContextDrawLinearGradient(c, gradient, CGPointMake(0, 4), CGPointMake(8, 4),
+                              0);
+  CGGradientRelease(gradient);
+  if (PIXEL(0, 3)[0] > 64 || PIXEL(7, 3)[0] < 192 || PIXEL(7, 3)[3] != 255)
+    return -5;
+#undef IS
+#undef PIXEL
+
+  CGContextRelease(c);
+  CGColorSpaceRelease(rgb);
+
+  CGColorRef color = CGColorCreateGenericRGB(0.25, 0.5, 0.75, 1);
+  const CGFloat *rgba = CGColorGetComponents(color);
+  if (CGColorGetNumberOfComponents(color) != 4 || rgba[0] != 0.25 ||
+      rgba[1] != 0.5 || rgba[2] != 0.75 || rgba[3] != 1)
+    return -6;
+  CGColorRelease(color);
+  return 0;
+}
+
 int test_NSURL_query() {
   NSURL *url = [NSURL
       URLWithString:[NSString
@@ -7532,6 +7609,7 @@ struct {
     FUNC_DEF(test_CGGeometry),
     FUNC_DEF(test_CFURLHasDirectoryPath),
     FUNC_DEF(test_CGImage_JPEG),
+    FUNC_DEF(test_CGContext_paths),
     FUNC_DEF(test_NSMutableString_deleteCharactersInRange),
     FUNC_DEF(test_NSMutableString_insertString_atIndex),
     FUNC_DEF(test_NSString_stringByReplacingOccurrencesOfString),

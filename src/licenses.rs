@@ -95,6 +95,15 @@ const APACHE_2_0: &str = include_str!("licenses/Apache-2.0.txt");
 /// encoding_rs's copyright line, then the license.
 const BSD_3_CLAUSE: &str = include_str!("licenses/BSD-3-Clause-encoding_rs.txt");
 const UNICODE_3_0: &str = include_str!("licenses/Unicode-3.0-unicode-ident.txt");
+/// Rust libraries under BSD licenses, whose own texts are shown below.
+#[cfg(test)]
+const BSD_LICENSE_CRATES: &[(&str, &str)] = &[
+    ("tiny-skia", "BSD-3-Clause"),
+    ("tiny-skia-path", "BSD-3-Clause"),
+    ("arrayref", "BSD-2-Clause"),
+];
+const BSD_3_CLAUSE_TINY_SKIA: &str = include_str!("licenses/BSD-3-Clause-tiny-skia.txt");
+const BSD_2_CLAUSE_ARRAYREF: &str = include_str!("licenses/BSD-2-Clause-arrayref.txt");
 const SDL2_SUN_LIBM: &str = include_str!("licenses/Sun-libm.txt");
 const SDL2_X11_IMKSTOUCS: &str = include_str!("licenses/MIT-imKStoUCS.txt");
 
@@ -349,6 +358,20 @@ fn print(out: &mut String, resources_are_external_files: bool) -> Result<(), std
     )?;
     writeln!(out, "{}", UNICODE_3_0.trim_end())?;
     divider(out)?;
+    writeln!(
+        out,
+        "\nThe Rust libraries tiny-skia and tiny-skia-path are licensed under the\n\
+         following license (BSD-3-Clause):\n",
+    )?;
+    writeln!(out, "{}", BSD_3_CLAUSE_TINY_SKIA.trim_end())?;
+    divider(out)?;
+    writeln!(
+        out,
+        "\nThe Rust library arrayref is licensed under the following license\n\
+         (BSD-2-Clause):\n",
+    )?;
+    writeln!(out, "{}", BSD_2_CLAUSE_ARRAYREF.trim_end())?;
+    divider(out)?;
     writeln!(out, "{MGBA_DESCRIPTION}")?;
     divider(out)?;
     writeln!(out, "{SDL2_DESCRIPTION}")?;
@@ -480,6 +503,8 @@ fn test_internal_files_license_text() {
         "SunPro",
         "Jamey Sharp",
         "Kotlin",
+        "Yevhenii Reizner",
+        "David Roundy",
     ] {
         assert!(text.contains(holder), "{holder}");
     }
@@ -508,7 +533,8 @@ fn test_rust_dependency_licenses_covered() {
         let license = license.trim();
         let covered = license.contains("MIT")
             || matches!(license, "MPL-2.0" | "Zlib")
-            || (license == "Apache-2.0" && APACHE_ONLY_CRATES.contains(&name));
+            || (license == "Apache-2.0" && APACHE_ONLY_CRATES.contains(&name))
+            || BSD_LICENSE_CRATES.contains(&(name, license));
         assert!(covered, "license text not shown for: {line}");
     }
 }
