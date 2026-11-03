@@ -660,6 +660,15 @@ int test_vsnprintf() {
   return 0;
 }
 
+int test_NSObject_self() {
+  if ([NSObject self] != [NSObject class])
+    return -1;
+  NSObject *obj = [NSObject new];
+  id result = [obj self];
+  [obj release];
+  return result == obj ? 0 : -2;
+}
+
 int test_CC_SHA256() {
   // SHA-256 of "hello world"
   const unsigned char expected[CC_SHA256_DIGEST_LENGTH] = {
@@ -7874,6 +7883,7 @@ struct {
 #endif
     FUNC_DEF(test_qsort),
     FUNC_DEF(test_vsnprintf),
+    FUNC_DEF(test_NSObject_self),
     FUNC_DEF(test_CC_SHA256),
     FUNC_DEF(test_CCCrypt),
     FUNC_DEF(test_CCHmac),

@@ -89,10 +89,12 @@ void (*method_getImplementation(Method m))(void);
   Class isa;
 }
 + (Class)class;
++ (instancetype)self;
 + (instancetype)alloc;
 + (instancetype)new;
 + (BOOL)respondsToSelector:(SEL)selector;
 - (instancetype)init;
+- (instancetype)self;
 - (instancetype)retain;
 - (void)release;
 - (instancetype)autorelease;

@@ -73,6 +73,9 @@ pub const CLASSES: ClassExports = objc_classes! {
 + (Class)class {
     this
 }
++ (id)self {
+    this
+}
 + (bool)isSubclassOfClass:(Class)class {
     env.objc.class_is_subclass_of(this, class)
 }
@@ -153,6 +156,9 @@ pub const CLASSES: ClassExports = objc_classes! {
     env.objc.dealloc_object(this, &mut env.mem)
 }
 
+- (id)self {
+    this
+}
 - (Class)class {
     ObjC::read_isa(this, &env.mem)
 }
