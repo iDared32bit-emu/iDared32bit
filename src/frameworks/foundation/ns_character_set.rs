@@ -22,6 +22,15 @@ const NEWLINE_CHARACTERS: [char; 7] = [
     '\u{000A}', '\u{000B}', '\u{000C}', '\u{000D}', '\u{0085}', '\u{2028}', '\u{2029}',
 ];
 
+// Unicode General Category Nd, in the BMP. Its digits come in runs of ten
+// (0 to 9), so this is each run's zero.
+const DECIMAL_DIGIT_ZEROS: [unichar; 37] = [
+    0x0030, 0x0660, 0x06F0, 0x07C0, 0x0966, 0x09E6, 0x0A66, 0x0AE6, 0x0B66, 0x0BE6, 0x0C66, 0x0CE6,
+    0x0D66, 0x0DE6, 0x0E50, 0x0ED0, 0x0F20, 0x1040, 0x1090, 0x17E0, 0x1810, 0x1946, 0x19D0, 0x1A80,
+    0x1A90, 0x1B50, 0x1BB0, 0x1C40, 0x1C50, 0xA620, 0xA8D0, 0xA900, 0xA9D0, 0xA9F0, 0xAA50, 0xABF0,
+    0xFF10,
+];
+
 // Unicode General Category Cc and Cf.
 // TODO: This is not actually the full list of charadcters in Cc and Cf, but
 // these are the ones reported from a simulator run with all `unichar`s. This
@@ -114,6 +123,18 @@ pub const CLASSES: ClassExports = objc_classes! {
     let set1 = HashSet::from(NEWLINE_CHARACTERS.map(|c| unichar::try_from(c).unwrap()));
     let set2 = HashSet::from(WHITESPACE_CHARACTERS.map(|c| unichar::try_from(c).unwrap()));
     let set = set1.union(&set2).copied().collect();
+
+    let new: id = msg![env; this alloc];
+    env.objc.borrow_mut::<CharacterSetHostObject>(new).set = set;
+
+    autorelease(env, new)
+}
+
++ (id)decimalDigitCharacterSet {
+    let set = DECIMAL_DIGIT_ZEROS
+        .iter()
+        .flat_map(|&zero| zero..zero + 10)
+        .collect();
 
     let new: id = msg![env; this alloc];
     env.objc.borrow_mut::<CharacterSetHostObject>(new).set = set;
