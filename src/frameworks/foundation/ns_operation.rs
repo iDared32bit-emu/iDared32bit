@@ -8,20 +8,45 @@
 //! Resources:
 //! - [Apple's Concurrency Programming Guide](https://developer.apple.com/library/archive/documentation/General/Conceptual/ConcurrencyProgrammingGuide/OperationObjects/OperationObjects.html)
 
+use super::ns_string::get_static_str;
 use crate::objc::{
     id, impl_HostObject_with_superclass, msg, msg_super, nil, objc_classes, release, retain,
     ClassExports, HostObject, NSZonePtr, SEL,
 };
+use crate::Environment;
 
 struct NSOperationHostObject {
     is_canceled: bool,
+    is_executing: bool,
+    is_finished: bool,
+    /// Operations that must finish first. Retained.
+    dependencies: Vec<id>,
 }
 impl HostObject for NSOperationHostObject {}
 
 impl NSOperationHostObject {
     pub fn new() -> Self {
-        Self { is_canceled: false }
+        Self {
+            is_canceled: false,
+            is_executing: false,
+            is_finished: false,
+            dependencies: Vec::new(),
+        }
     }
+}
+
+/// Changes a state, with the key-value observing notifications iOS sends,
+/// which some apps watch for.
+fn set_state(
+    env: &mut Environment,
+    this: id,
+    key: &'static str,
+    change: impl FnOnce(&mut NSOperationHostObject),
+) {
+    let key = get_static_str(env, key);
+    () = msg![env; this willChangeValueForKey:key];
+    change(env.objc.borrow_mut(this));
+    () = msg![env; this didChangeValueForKey:key];
 }
 
 struct NSInvocationOperationHostObject {
@@ -55,14 +80,68 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 - (())start {
     let host_object: &NSOperationHostObject = env.objc.borrow(this);
-    if host_object.is_canceled {
-        return
+    if host_object.is_executing || host_object.is_finished {
+        // iOS raises an exception.
+        log!("Warning: {:?} was started again, ignoring", this);
+        return;
     }
-    let _: () = msg![env; this main];
+    // A cancelled operation finishes without running.
+    if !host_object.is_canceled {
+        set_state(env, this, "isExecuting", |o| o.is_executing = true);
+        let _: () = msg![env; this main];
+        set_state(env, this, "isExecuting", |o| o.is_executing = false);
+    }
+    set_state(env, this, "isFinished", |o| o.is_finished = true);
 }
 
 - (())main {
     // "The default implementation of this method does nothing."
+}
+
+- (())cancel {
+    if !env.objc.borrow::<NSOperationHostObject>(this).is_canceled {
+        set_state(env, this, "isCancelled", |o| o.is_canceled = true);
+    }
+}
+
+- (bool)isCancelled {
+    env.objc.borrow::<NSOperationHostObject>(this).is_canceled
+}
+- (bool)isExecuting {
+    env.objc.borrow::<NSOperationHostObject>(this).is_executing
+}
+- (bool)isFinished {
+    env.objc.borrow::<NSOperationHostObject>(this).is_finished
+}
+- (bool)isConcurrent {
+    false
+}
+// Ready once all its dependencies have finished.
+- (bool)isReady {
+    let dependencies = env.objc.borrow::<NSOperationHostObject>(this).dependencies.clone();
+    dependencies.into_iter().all(|op| msg![env; op isFinished])
+}
+
+- (())addDependency:(id)operation { // NSOperation*
+    retain(env, operation);
+    env.objc.borrow_mut::<NSOperationHostObject>(this).dependencies.push(operation);
+}
+- (())removeDependency:(id)operation { // NSOperation*
+    let dependencies = &mut env.objc.borrow_mut::<NSOperationHostObject>(this).dependencies;
+    if let Some(i) = dependencies.iter().position(|&op| op == operation) {
+        dependencies.remove(i);
+        release(env, operation);
+    }
+}
+
+- (())dealloc {
+    let dependencies = std::mem::take(
+        &mut env.objc.borrow_mut::<NSOperationHostObject>(this).dependencies,
+    );
+    for operation in dependencies {
+        release(env, operation);
+    }
+    env.objc.dealloc_object(this, &mut env.mem)
 }
 
 @end
