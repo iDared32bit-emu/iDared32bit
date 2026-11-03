@@ -93,8 +93,16 @@ pub const CLASSES: ClassExports = objc_classes! {
     env.objc.dealloc_object(this, &mut env.mem);
 }
 
+- (id)domain { // NSErrorDomain
+    env.objc.borrow::<ErrorHostObject>(this).domain
+}
+
 - (NSInteger)code {
     env.objc.borrow::<ErrorHostObject>(this).code
+}
+
+- (id)userInfo { // NSDictionary*
+    env.objc.borrow::<ErrorHostObject>(this).user_info
 }
 
 @end

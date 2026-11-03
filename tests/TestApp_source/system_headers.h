@@ -316,7 +316,12 @@ typedef double NSTimeInterval;
 @end
 
 @interface NSError : NSObject
++ (instancetype)errorWithDomain:(NSString *)domain
+                           code:(NSInteger)code
+                       userInfo:(NSDictionary *)userInfo;
+- (NSString *)domain;
 - (NSInteger)code;
+- (NSDictionary *)userInfo;
 @end
 
 @interface NSURLConnection : NSObject

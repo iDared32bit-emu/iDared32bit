@@ -759,6 +759,21 @@ int test_NSAssertionHandler() {
   return 0;
 }
 
+int test_NSError() {
+  NSAutoreleasePool *pool = [NSAutoreleasePool new];
+  NSString *domain = [NSString stringWithUTF8String:"TestDomain"];
+  NSDictionary *info = [NSDictionary
+      dictionaryWithObjects:[NSArray arrayWithObjects:domain, nil]
+                    forKeys:[NSArray arrayWithObjects:domain, nil]];
+  NSError *error = [NSError errorWithDomain:domain code:42 userInfo:info];
+  int res = 0;
+  if (![[error domain] isEqualToString:domain] || [error code] != 42 ||
+      ![[error userInfo] isEqual:info])
+    res = -1;
+  [pool drain];
+  return res;
+}
+
 @interface URLConnectionDelegate : NSObject {
 @public
   int failures;
@@ -8532,6 +8547,7 @@ struct {
     FUNC_DEF(test_NSObject_self),
     FUNC_DEF(test_class_copyPropertyList),
     FUNC_DEF(test_NSAssertionHandler),
+    FUNC_DEF(test_NSError),
     FUNC_DEF(test_NSURLConnection_offline),
     FUNC_DEF(test_NSNumber_objCType),
     FUNC_DEF(test_valueForKey),
