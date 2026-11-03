@@ -5438,6 +5438,16 @@ int test_CFURLHasDirectoryPath() {
   return 0;
 }
 
+int test_NSMutableString_insertString_atIndex() {
+  NSMutableString *str = [NSMutableString stringWithUTF8String:"ac"];
+  [str insertString:[NSString stringWithUTF8String:"b"] atIndex:1];
+  [str insertString:[NSString stringWithUTF8String:">"] atIndex:0];
+  [str insertString:[NSString stringWithUTF8String:"<"] atIndex:4];
+  if (!CFEqual(str, [NSString stringWithUTF8String:">abc<"]))
+    return -1;
+  return 0;
+}
+
 int test_NSMutableString_deleteCharactersInRange() {
   NSAutoreleasePool *pool = [NSAutoreleasePool new];
   NSMutableString *str = [NSMutableString stringWithUTF8String:"abc"];
@@ -7523,6 +7533,7 @@ struct {
     FUNC_DEF(test_CFURLHasDirectoryPath),
     FUNC_DEF(test_CGImage_JPEG),
     FUNC_DEF(test_NSMutableString_deleteCharactersInRange),
+    FUNC_DEF(test_NSMutableString_insertString_atIndex),
     FUNC_DEF(test_NSString_stringByReplacingOccurrencesOfString),
     FUNC_DEF(test_NSString_stringByReplacingOccurrencesOfString_options_range),
     FUNC_DEF(test_NSString_compare_options),

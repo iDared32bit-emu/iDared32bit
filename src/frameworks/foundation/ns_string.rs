@@ -1400,6 +1400,19 @@ pub const CLASSES: ClassExports = objc_classes! {
     () = msg![env; this setString:new];
 }
 
+- (())insertString:(id)a_string // NSString*
+              atIndex:(NSUInteger)index {
+    assert_ne!(a_string, nil);
+    let length: NSUInteger = msg![env; this length];
+    // iOS raises NSRangeException.
+    assert!(index <= length, "Index {index} beyond length {length}");
+    let left: id = msg![env; this substringToIndex:index];
+    let right: id = msg![env; this substringFromIndex:index];
+    let res: id = msg![env; left stringByAppendingString:a_string];
+    let res: id = msg![env; res stringByAppendingString:right];
+    () = msg![env; this setString:res];
+}
+
 - (())deleteCharactersInRange:(NSRange)range {
     let location = range.location;
     let length = range.length;

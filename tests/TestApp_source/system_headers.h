@@ -164,6 +164,7 @@ typedef enum {
 @end
 @interface NSMutableString : NSString
 - (void)deleteCharactersInRange:(NSRange)range;
+- (void)insertString:(NSString *)string atIndex:(NSUInteger)index;
 @end
 
 @interface NSValue : NSObject
