@@ -5651,6 +5651,38 @@ int test_NSString_stringByReplacingOccurrencesOfString_options_range() {
   return 0;
 }
 
+int test_NSString_compare_options() {
+  NSString *abc = [NSString stringWithUTF8String:"abc"];
+  NSString *ABC = [NSString stringWithUTF8String:"ABC"];
+  if ([abc compare:ABC options:0] != NSOrderedDescending)
+    return -1;
+  if ([abc compare:ABC options:NSCaseInsensitiveSearch] != NSOrderedSame)
+    return -2;
+  // Equal but not identical: ordered literally instead.
+  if ([abc compare:ABC
+           options:NSCaseInsensitiveSearch | NSForcedOrderingSearch] !=
+      NSOrderedDescending)
+    return -3;
+  if ([abc compare:abc options:NSForcedOrderingSearch] != NSOrderedSame)
+    return -4;
+
+  NSString *file10 = [NSString stringWithUTF8String:"File10"];
+  NSString *file9 = [NSString stringWithUTF8String:"file9"];
+  if ([file10 compare:file9
+              options:NSNumericSearch | NSCaseInsensitiveSearch] !=
+      NSOrderedDescending)
+    return -5;
+
+  NSString *a01 = [NSString stringWithUTF8String:"a01"];
+  NSString *a1 = [NSString stringWithUTF8String:"a1"];
+  if ([a01 compare:a1 options:NSNumericSearch] != NSOrderedSame)
+    return -6;
+  if ([a01 compare:a1 options:NSNumericSearch | NSForcedOrderingSearch] !=
+      NSOrderedAscending)
+    return -7;
+  return 0;
+}
+
 int test_NSString_pathWithComponents() {
   NSAutoreleasePool *pool = [NSAutoreleasePool new];
 
@@ -7477,6 +7509,7 @@ struct {
     FUNC_DEF(test_NSMutableString_deleteCharactersInRange),
     FUNC_DEF(test_NSString_stringByReplacingOccurrencesOfString),
     FUNC_DEF(test_NSString_stringByReplacingOccurrencesOfString_options_range),
+    FUNC_DEF(test_NSString_compare_options),
     FUNC_DEF(test_NSString_pathWithComponents),
     FUNC_DEF(test_strptime),
     FUNC_DEF(test_uname),

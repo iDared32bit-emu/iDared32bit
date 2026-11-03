@@ -135,7 +135,16 @@ void (*method_getImplementation(Method m))(void);
 
 typedef enum {
   NSCaseInsensitiveSearch = 1,
+  NSLiteralSearch = 2,
+  NSNumericSearch = 64,
+  NSForcedOrderingSearch = 512,
 } NSStringCompareOptions;
+
+typedef enum {
+  NSOrderedAscending = -1,
+  NSOrderedSame,
+  NSOrderedDescending,
+} NSComparisonResult;
 
 @interface NSString : NSObject
 + (instancetype)stringWithFormat:(NSString *)format, ...;
@@ -149,6 +158,8 @@ typedef enum {
                                                (NSStringCompareOptions)options
                                              range:(NSRange)range;
 - (BOOL)isEqualToString:(NSString *)other;
+- (NSComparisonResult)compare:(NSString *)other
+                      options:(NSStringCompareOptions)mask;
 - (const char *)UTF8String;
 @end
 @interface NSMutableString : NSString

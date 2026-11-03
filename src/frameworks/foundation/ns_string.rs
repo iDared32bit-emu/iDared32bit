@@ -60,6 +60,7 @@ pub const NSCaseInsensitiveSearch: NSUInteger = 1;
 pub const NSLiteralSearch: NSUInteger = 2;
 pub const NSBackwardsSearch: NSUInteger = 4;
 pub const NSNumericSearch: NSUInteger = 64;
+pub const NSForcedOrderingSearch: NSUInteger = 512;
 
 /// Encodings that C strings (null-terminated byte strings) can use.
 const C_STRING_FRIENDLY_ENCODINGS: &[NSStringEncoding] = &[
@@ -740,64 +741,50 @@ pub const CLASSES: ClassExports = objc_classes! {
     let mut a_iter = env.objc.borrow::<StringHostObject>(this).iter_code_units().peekable();
     let mut b_iter = env.objc.borrow::<StringHostObject>(other).iter_code_units().peekable();
 
-    // By default, no mask is a literal search
-    let mask = if mask == 0 {
-        NSLiteralSearch
+    let unsupported =
+        mask & !(NSCaseInsensitiveSearch | NSLiteralSearch | NSNumericSearch | NSForcedOrderingSearch);
+    if unsupported != 0 {
+        unimplemented!("Compare options: {unsupported:#x}");
+    }
+    let case_insensitive = mask & NSCaseInsensitiveSearch != 0;
+    let numeric = mask & NSNumericSearch != 0;
+
+    // Strings are always compared literally here (by code unit, ignoring
+    // canonical equivalence), as with NSLiteralSearch.
+    let order = if !case_insensitive && !numeric {
+        a_iter.cmp(b_iter)
     } else {
-        mask
+        loop {
+            let a_next = a_iter.next();
+            let b_next = b_iter.next();
+            let (Some(a_unit), Some(b_unit)) = (a_next, b_next) else {
+                break a_next.cmp(&b_next);
+            };
+            let (Some(a_c), Some(b_c)) = (char::from_u32(a_unit as u32), char::from_u32(b_unit as u32)) else {
+                panic!("Invalid chars in the strings!");
+            };
+
+            let order = if numeric && a_c.is_ascii_digit() && b_c.is_ascii_digit() {
+                ascii_number(&mut a_iter, a_c).cmp(&ascii_number(&mut b_iter, b_c))
+            } else if case_insensitive {
+                a_c.to_lowercase().cmp(b_c.to_lowercase())
+            } else {
+                a_c.cmp(&b_c)
+            };
+            if order != std::cmp::Ordering::Equal {
+                break order;
+            }
+        }
     };
 
-    // TODO: OR'ing of compare options
-    match mask {
-        NSCaseInsensitiveSearch => {
-            loop {
-                let a_next = a_iter.next();
-                let b_next = b_iter.next();
-                let (Some(a_unit), Some(b_unit)) = (a_next, b_next) else {
-                    return from_rust_ordering(a_next.cmp(&b_next));
-                };
-                let (Some(a_c), Some(b_c)) = (char::from_u32(a_unit as u32), char::from_u32(b_unit as u32)) else {
-                    panic!("Invalid chars in the strings!");
-                };
-
-                let insensitive_order = a_c.to_lowercase().cmp(b_c.to_lowercase());
-                if insensitive_order != std::cmp::Ordering::Equal {
-                    return from_rust_ordering(insensitive_order);
-                }
-            }
-        },
-        NSLiteralSearch => {
-            from_rust_ordering(a_iter.cmp(b_iter))
-        },
-        NSNumericSearch => {
-            loop {
-                let a_next = a_iter.next();
-                let b_next = b_iter.next();
-                let (Some(a_unit), Some(b_unit)) = (a_next, b_next) else {
-                    return from_rust_ordering(a_next.cmp(&b_next));
-                };
-                let (Some(a_c), Some(b_c)) = (char::from_u32(a_unit as u32), char::from_u32(b_unit as u32)) else {
-                    panic!("Invalid chars in the strings!");
-                };
-
-                if a_c.is_ascii_digit() && b_c.is_ascii_digit() {
-                    let a_int = ascii_number(&mut a_iter, a_c);
-                    let b_int = ascii_number(&mut b_iter, b_c);
-
-                    let numeric_order = a_int.cmp(&b_int);
-                    if numeric_order != std::cmp::Ordering::Equal {
-                        return from_rust_ordering(numeric_order);
-                    }
-                } else {
-                    let char_order = a_c.cmp(&b_c);
-                    if char_order != std::cmp::Ordering::Equal {
-                        return from_rust_ordering(char_order);
-                    }
-                }
-            }
-        },
-        mask => unimplemented!("Other mask: {mask}"),
+    // Strings that are equal but not identical (e.g. "a" and "A" when case
+    // insensitive) are ordered literally instead.
+    if order == std::cmp::Ordering::Equal && mask & NSForcedOrderingSearch != 0 {
+        let a_iter = env.objc.borrow::<StringHostObject>(this).iter_code_units();
+        let b_iter = env.objc.borrow::<StringHostObject>(other).iter_code_units();
+        return from_rust_ordering(a_iter.cmp(b_iter));
     }
+    from_rust_ordering(order)
 }
 
 // NSCopying implementation
