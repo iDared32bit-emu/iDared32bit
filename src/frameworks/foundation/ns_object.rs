@@ -10,7 +10,8 @@
 //!   explains how reference counting works. Note that we are interested in what
 //!   it calls "manual retain-release", not ARC.
 //! - Apple's [Key-Value Coding Programming Guide](https://developer.apple.com/library/archive/documentation/Cocoa/Conceptual/KeyValueCoding/SearchImplementation.html)
-//!   explains the algorithm `setValue:forKey:` should follow.
+//!   explains the algorithms `setValue:forKey:` and `valueForKey:` should
+//!   follow.
 //!
 //! See also: [crate::objc], especially the `objects` module.
 
@@ -25,8 +26,8 @@ use crate::libc::semaphore::{host_destroy_semaphore, sem_wait};
 use crate::mem::MutVoidPtr;
 use crate::objc::{
     autorelease, id, msg, msg_class, msg_send, msg_send_no_type_checking, nil, objc_classes,
-    retain, Class, ClassExports, NSZonePtr, ObjC, TrivialHostObject, SEL, TYPE_BOOL, TYPE_CHAR,
-    TYPE_CHAR_PTR, TYPE_CLASS, TYPE_DOUBLE, TYPE_FLOAT, TYPE_ID, TYPE_INT, TYPE_LONG,
+    release, retain, Class, ClassExports, NSZonePtr, ObjC, TrivialHostObject, SEL, TYPE_BOOL,
+    TYPE_CHAR, TYPE_CHAR_PTR, TYPE_CLASS, TYPE_DOUBLE, TYPE_FLOAT, TYPE_ID, TYPE_INT, TYPE_LONG,
     TYPE_LONGLONG, TYPE_SEL, TYPE_SHORT, TYPE_UCHAR, TYPE_UINT, TYPE_ULONG, TYPE_ULONGLONG,
     TYPE_UNDEF, TYPE_USHORT, TYPE_VOID,
 };
@@ -368,6 +369,172 @@ pub const CLASSES: ClassExports = objc_classes! {
     // may provide key-specific behavior.
     let sel = env.objc.lookup_selector("setValue:forUndefinedKey:").unwrap();
     () = msg_send(env, (this, sel, value, key));
+}
+
+- (id)valueForKey:(id)key { // NSString*
+    let key_string = to_rust_string(env, key); // TODO: avoid copy?
+    assert!(key_string.is_ascii()); // TODO: do we have to handle non-ASCII keys?
+    let camel_case_key_string = format!("{}{}", key_string.as_bytes()[0].to_ascii_uppercase() as char, &key_string[1..]);
+
+    let class = msg![env; this class];
+
+    // Look for the first accessor named get<Key>, <key>, is<Key>, or _<key>,
+    // in that order. If found, invoke it, wrapping a non-object result.
+    // TODO: collection accessors (countOf<Key> and friends)
+    for name in [
+        format!("get{camel_case_key_string}"),
+        key_string.to_string(),
+        format!("is{camel_case_key_string}"),
+        format!("_{key_string}"),
+    ] {
+        let Some(sel) = env.objc.lookup_selector(&name) else {
+            continue;
+        };
+        if !env.objc.class_has_method(class, sel) {
+            continue;
+        }
+        let types = env.objc.get_class_method(class, sel).types.clone();
+        let return_type = types.trim_start_matches(['r', 'n', 'N', 'o', 'O', 'R', 'V']).chars().next().unwrap();
+        return match return_type {
+            TYPE_ID | TYPE_CLASS => msg_send_no_type_checking(env, (this, sel)),
+            TYPE_CHAR => {
+                let value: i8 = msg_send_no_type_checking(env, (this, sel));
+                msg_class![env; NSNumber numberWithChar:value]
+            }
+            TYPE_BOOL => {
+                let value: bool = msg_send_no_type_checking(env, (this, sel));
+                msg_class![env; NSNumber numberWithBool:value]
+            }
+            TYPE_SHORT => {
+                let value: i16 = msg_send_no_type_checking(env, (this, sel));
+                msg_class![env; NSNumber numberWithShort:value]
+            }
+            TYPE_USHORT => {
+                let value: u16 = msg_send_no_type_checking(env, (this, sel));
+                msg_class![env; NSNumber numberWithUnsignedShort:value]
+            }
+            TYPE_INT | TYPE_LONG => {
+                let value: i32 = msg_send_no_type_checking(env, (this, sel));
+                msg_class![env; NSNumber numberWithInt:value]
+            }
+            TYPE_UINT | TYPE_ULONG => {
+                let value: u32 = msg_send_no_type_checking(env, (this, sel));
+                msg_class![env; NSNumber numberWithUnsignedInt:value]
+            }
+            TYPE_LONGLONG => {
+                let value: i64 = msg_send_no_type_checking(env, (this, sel));
+                msg_class![env; NSNumber numberWithLongLong:value]
+            }
+            TYPE_ULONGLONG => {
+                let value: u64 = msg_send_no_type_checking(env, (this, sel));
+                msg_class![env; NSNumber numberWithUnsignedLongLong:value]
+            }
+            TYPE_FLOAT => {
+                let value: f32 = msg_send_no_type_checking(env, (this, sel));
+                msg_class![env; NSNumber numberWithFloat:value]
+            }
+            TYPE_DOUBLE => {
+                let value: f64 = msg_send_no_type_checking(env, (this, sel));
+                msg_class![env; NSNumber numberWithDouble:value]
+            }
+            _ => unimplemented!("TODO: [(NSObject*){:?} valueForKey:{:?}]: wrapping a value of type {}", this, key_string, types),
+        };
+    }
+
+    // If no simple accessor is found, and if the class method
+    // accessInstanceVariablesDirectly returns YES, look for an instance
+    // variable with a name like _<key>, _is<Key>, <key>, or is<Key>,
+    // in that order. If found, get its value, wrapping a non-object one.
+    let sel = env.objc.lookup_selector("accessInstanceVariablesDirectly").unwrap();
+    let accessInstanceVariablesDirectly = msg_send(env, (class, sel));
+    if accessInstanceVariablesDirectly {
+        if let Some((ivar_ptr, ivar_type)) = env.objc.object_lookup_ivar(&env.mem, this, &format!("_{key_string}"))
+            .or_else(|| env.objc.object_lookup_ivar(&env.mem, this, &format!("_is{camel_case_key_string}")))
+            .or_else(|| env.objc.object_lookup_ivar(&env.mem, this, &key_string.to_string()))
+            .or_else(|| env.objc.object_lookup_ivar(&env.mem, this, &format!("is{camel_case_key_string}"))
+        ) {
+            let ivar_type = ivar_type.to_string();
+            let ptr = ivar_ptr.cast_const();
+            return match ivar_type.chars().next().unwrap() {
+                TYPE_ID | TYPE_CLASS => env.mem.read(ptr.cast()),
+                TYPE_CHAR => {
+                    let value: i8 = env.mem.read(ptr.cast());
+                    msg_class![env; NSNumber numberWithChar:value]
+                }
+                TYPE_BOOL => {
+                    let value: bool = env.mem.read(ptr.cast());
+                    msg_class![env; NSNumber numberWithBool:value]
+                }
+                TYPE_SHORT => {
+                    let value: i16 = env.mem.read(ptr.cast());
+                    msg_class![env; NSNumber numberWithShort:value]
+                }
+                TYPE_USHORT => {
+                    let value: u16 = env.mem.read(ptr.cast());
+                    msg_class![env; NSNumber numberWithUnsignedShort:value]
+                }
+                TYPE_INT | TYPE_LONG => {
+                    let value: i32 = env.mem.read(ptr.cast());
+                    msg_class![env; NSNumber numberWithInt:value]
+                }
+                TYPE_UINT | TYPE_ULONG => {
+                    let value: u32 = env.mem.read(ptr.cast());
+                    msg_class![env; NSNumber numberWithUnsignedInt:value]
+                }
+                TYPE_LONGLONG => {
+                    let value: i64 = env.mem.read(ptr.cast());
+                    msg_class![env; NSNumber numberWithLongLong:value]
+                }
+                TYPE_ULONGLONG => {
+                    let value: u64 = env.mem.read(ptr.cast());
+                    msg_class![env; NSNumber numberWithUnsignedLongLong:value]
+                }
+                TYPE_FLOAT => {
+                    let value: f32 = env.mem.read(ptr.cast());
+                    msg_class![env; NSNumber numberWithFloat:value]
+                }
+                TYPE_DOUBLE => {
+                    let value: f64 = env.mem.read(ptr.cast());
+                    msg_class![env; NSNumber numberWithDouble:value]
+                }
+                _ => unimplemented!("TODO: [(NSObject*){:?} valueForKey:{:?}]: wrapping an ivar of type {}", this, key_string, ivar_type),
+            };
+        }
+    }
+
+    // Upon finding no accessor or instance variable,
+    // invoke valueForUndefinedKey:.
+    // This raises an exception by default, but a subclass of NSObject
+    // may provide key-specific behavior.
+    let sel = env.objc.lookup_selector("valueForUndefinedKey:").unwrap();
+    msg_send(env, (this, sel, key))
+}
+
+- (id)valueForUndefinedKey:(id)key { // NSString*
+    // TODO: Raise NSUnknownKeyException
+    let class: Class = ObjC::read_isa(this, &env.mem);
+    let class_name_string = env.objc.get_class_name(class).to_owned(); // TODO: Avoid copying
+    let key_string = to_rust_string(env, key);
+    panic!("Object {:?} of class {:?} ({:?}) does not have a getter for {} ({:?})\
+        \nAvailable selectors: {}\nAvailable ivars: {}",
+        this, class_name_string, class, key_string, key,
+        env.objc.debug_all_class_selectors_as_strings(&env.mem, class).join(", "),
+        env.objc.debug_all_class_ivars_as_strings(class).join(", "));
+}
+
+- (id)dictionaryWithValuesForKeys:(id)keys { // NSArray*
+    let dict: id = msg_class![env; NSMutableDictionary new];
+    let count: NSUInteger = msg![env; keys count];
+    for i in 0..count {
+        let key: id = msg![env; keys objectAtIndex:i];
+        let value: id = msg![env; this valueForKey:key];
+        // Missing values are NSNull, since a dictionary can't hold nil.
+        let value = if value == nil { msg_class![env; NSNull null] } else { value };
+        () = msg![env; dict setObject:value forKey:key];
+    }
+    let res: id = msg![env; dict copy];
+    release(env, dict);
+    autorelease(env, res)
 }
 
 - (())setValue:(id)_value

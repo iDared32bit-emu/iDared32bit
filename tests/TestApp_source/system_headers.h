@@ -215,10 +215,17 @@ typedef enum {
 + (NSNumber *)numberWithFloat:(float)value;
 + (NSNumber *)numberWithBool:(bool)value;
 - (int)intValue;
+- (float)floatValue;
+- (BOOL)boolValue;
 @end
 
 @interface NSNull : NSObject
 + (NSNull *)null;
+@end
+
+@interface NSObject (NSKeyValueCoding)
+- (id)valueForKey:(id)key;
+- (NSDictionary *)dictionaryWithValuesForKeys:(NSArray *)keys;
 @end
 
 typedef enum {

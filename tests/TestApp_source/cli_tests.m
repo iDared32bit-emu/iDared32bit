@@ -726,6 +726,65 @@ int test_class_copyPropertyList() {
   return res;
 }
 
+@interface KVCGetterTest : NSObject {
+  int _count;
+  float _ratio;
+  id _name;
+}
+- (int)count;
+- (BOOL)isEnabled;
+@end
+
+@implementation KVCGetterTest
+- (instancetype)init {
+  if ((self = [super init])) {
+    _count = 3;
+    _ratio = 1.5;
+  }
+  return self;
+}
+- (int)count {
+  return 7;
+}
+- (BOOL)isEnabled {
+  return YES;
+}
+@end
+
+int test_valueForKey() {
+  NSAutoreleasePool *pool = [NSAutoreleasePool new];
+  KVCGetterTest *obj = [KVCGetterTest new];
+  NSString *count = [NSString stringWithUTF8String:"count"];
+  NSString *ratio = [NSString stringWithUTF8String:"ratio"];
+  NSString *enabled = [NSString stringWithUTF8String:"enabled"];
+  NSString *name = [NSString stringWithUTF8String:"name"];
+  int res = 0;
+
+  // An accessor comes before the ivar of the same name.
+  if ([[obj valueForKey:count] intValue] != 7)
+    res = -1;
+  // Then an ivar, wrapped in an NSNumber.
+  else if ([[obj valueForKey:ratio] floatValue] != 1.5)
+    res = -2;
+  // is<Key> accessors.
+  else if (![[obj valueForKey:enabled] boolValue])
+    res = -3;
+  else if ([obj valueForKey:name] != nil)
+    res = -4;
+
+  // Missing values are NSNull.
+  NSDictionary *dict = [obj
+      dictionaryWithValuesForKeys:[NSArray arrayWithObjects:count, name, nil]];
+  if (res == 0 &&
+      ([dict count] != 2 || [[dict objectForKey:count] intValue] != 7 ||
+       [dict objectForKey:name] != [NSNull null]))
+    res = -5;
+
+  [obj release];
+  [pool drain];
+  return res;
+}
+
 int test_NSData_description() {
   NSAutoreleasePool *pool = [NSAutoreleasePool new];
   int res = 0;
@@ -8194,6 +8253,7 @@ struct {
     FUNC_DEF(test_vsnprintf),
     FUNC_DEF(test_NSObject_self),
     FUNC_DEF(test_class_copyPropertyList),
+    FUNC_DEF(test_valueForKey),
     FUNC_DEF(test_NSData_description),
     FUNC_DEF(test_CC_SHA256),
     FUNC_DEF(test_CCCrypt),
