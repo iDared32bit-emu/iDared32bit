@@ -225,6 +225,8 @@ typedef double NSTimeInterval;
 
 @interface NSURL : NSObject
 + (NSURL *)fileURLWithPath:(NSString *)path;
++ (NSURL *)URLWithString:(NSString *)string;
+- (NSString *)query;
 - (NSString *)path;
 @end
 

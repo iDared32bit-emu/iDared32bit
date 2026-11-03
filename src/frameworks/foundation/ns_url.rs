@@ -200,6 +200,20 @@ pub const CLASSES: ClassExports = objc_classes! {
     }
 }
 
+- (id)query {
+    // File URLs made from paths never have one.
+    let &NSURLHostObject::OtherURL { ns_string } = env.objc.borrow(this) else {
+        return nil;
+    };
+    let url = to_rust_string(env, ns_string).to_string();
+    // Still percent-escaped, as on iOS.
+    let Some(query) = split_url(&url).3 else {
+        return nil;
+    };
+    let query = from_rust_string(env, query.to_string());
+    autorelease(env, query)
+}
+
 - (id)absoluteURL {
     // FIXME: don't assume URL is already absolute
     let &NSURLHostObject::OtherURL { .. } = env.objc.borrow(this) else {

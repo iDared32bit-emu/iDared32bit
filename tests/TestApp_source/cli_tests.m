@@ -5651,6 +5651,22 @@ int test_NSString_stringByReplacingOccurrencesOfString_options_range() {
   return 0;
 }
 
+int test_NSURL_query() {
+  NSURL *url = [NSURL
+      URLWithString:[NSString
+                        stringWithUTF8String:"http://a.com/p?x=1&y=%20#f"]];
+  if (![[url query]
+          isEqualToString:[NSString stringWithUTF8String:"x=1&y=%20"]])
+    return -1;
+  url = [NSURL URLWithString:[NSString stringWithUTF8String:"http://a.com/p"]];
+  if ([url query] != nil)
+    return -2;
+  url = [NSURL fileURLWithPath:[NSString stringWithUTF8String:"/tmp/a"]];
+  if ([url query] != nil)
+    return -3;
+  return 0;
+}
+
 int test_NSString_compare_options() {
   NSString *abc = [NSString stringWithUTF8String:"abc"];
   NSString *ABC = [NSString stringWithUTF8String:"ABC"];
@@ -7510,6 +7526,7 @@ struct {
     FUNC_DEF(test_NSString_stringByReplacingOccurrencesOfString),
     FUNC_DEF(test_NSString_stringByReplacingOccurrencesOfString_options_range),
     FUNC_DEF(test_NSString_compare_options),
+    FUNC_DEF(test_NSURL_query),
     FUNC_DEF(test_NSString_pathWithComponents),
     FUNC_DEF(test_strptime),
     FUNC_DEF(test_uname),
