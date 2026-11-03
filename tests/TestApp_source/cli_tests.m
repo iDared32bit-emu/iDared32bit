@@ -669,6 +669,53 @@ int test_NSObject_self() {
   return result == obj ? 0 : -2;
 }
 
+@interface PropertyListTest : NSObject {
+  int _count;
+  id _obj;
+}
+@property(nonatomic) int count;
+@property(nonatomic, retain) id obj;
+@end
+
+@implementation PropertyListTest
+@synthesize count = _count;
+@synthesize obj = _obj;
+@end
+
+@interface NoPropertiesTest : NSObject
+@end
+
+@implementation NoPropertiesTest
+@end
+
+int test_class_copyPropertyList() {
+  unsigned int count = 0;
+  objc_property_t *list =
+      class_copyPropertyList([PropertyListTest class], &count);
+  if (list == NULL || count != 2)
+    return -1;
+  int found = 0;
+  for (unsigned int i = 0; i < count; i++) {
+    const char *name = property_getName(list[i]);
+    const char *attributes = property_getAttributes(list[i]);
+    if (strcmp(name, "count") == 0 && strcmp(attributes, "Ti,N,V_count") == 0)
+      found |= 1;
+    else if (strcmp(name, "obj") == 0 &&
+             strcmp(attributes, "T@,&,N,V_obj") == 0)
+      found |= 2;
+  }
+  int res = found == 3 && list[count] == NULL ? 0 : -2;
+  free(list);
+
+  // A class without properties.
+  count = 1;
+  list = class_copyPropertyList([NoPropertiesTest class], &count);
+  if (res == 0 && count != 0)
+    res = -3;
+  free(list);
+  return res;
+}
+
 int test_NSData_description() {
   NSAutoreleasePool *pool = [NSAutoreleasePool new];
   int res = 0;
@@ -8136,6 +8183,7 @@ struct {
     FUNC_DEF(test_qsort),
     FUNC_DEF(test_vsnprintf),
     FUNC_DEF(test_NSObject_self),
+    FUNC_DEF(test_class_copyPropertyList),
     FUNC_DEF(test_NSData_description),
     FUNC_DEF(test_CC_SHA256),
     FUNC_DEF(test_CCCrypt),

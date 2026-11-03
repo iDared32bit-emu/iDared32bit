@@ -77,6 +77,10 @@ static inline NSRange NSMakeRange(NSUInteger loc, NSUInteger len) {
 
 typedef struct objc_method *Method;
 Method class_getInstanceMethod(Class cls, SEL name);
+typedef struct objc_property *objc_property_t;
+objc_property_t *class_copyPropertyList(Class cls, unsigned int *outCount);
+const char *property_getName(objc_property_t property);
+const char *property_getAttributes(objc_property_t property);
 #ifdef DEFINE_ME_WHEN_BUILDING_ON_MACOS
 SEL method_getName(Method m);
 // Returns IMP, which isn't declared here.
