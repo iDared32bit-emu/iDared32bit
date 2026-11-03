@@ -99,7 +99,10 @@ pub const CLASSES: ClassExports = objc_classes! {
 - (())retainArguments {
     // TODO: handle return val
     // TODO: copy blocks
-    assert!(!env.objc.borrow::<NSInvocationHostObject>(this).arguments_retained); // TODO
+    // Doing it again does nothing.
+    if env.objc.borrow::<NSInvocationHostObject>(this).arguments_retained {
+        return;
+    }
 
     let target = env.objc.borrow::<NSInvocationHostObject>(this).target;
     retain(env, target);

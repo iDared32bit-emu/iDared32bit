@@ -434,6 +434,7 @@ extern NSString *const NSGregorianCalendar;
 
 @interface NSInvocationOperation : NSOperation
 - (instancetype)initWithTarget:(id)target selector:(SEL)sel object:(id)arg;
+- (instancetype)initWithInvocation:(NSInvocation *)invocation;
 @end
 
 @interface NSOperationQueue : NSObject

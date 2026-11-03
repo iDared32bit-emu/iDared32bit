@@ -54,6 +54,8 @@ struct NSInvocationOperationHostObject {
     target: id,
     sel: Option<SEL>,
     arg: id,
+    /// `NSInvocation *`, if made with `initWithInvocation:`
+    invocation: id,
 }
 impl_HostObject_with_superclass!(NSInvocationOperationHostObject);
 
@@ -64,6 +66,7 @@ impl NSInvocationOperationHostObject {
             target: nil,
             sel: None,
             arg: nil,
+            invocation: nil,
         }
     }
 }
@@ -168,8 +171,21 @@ pub const CLASSES: ClassExports = objc_classes! {
     this
 }
 
+- (id)initWithInvocation:(id)invocation { // NSInvocation *
+    let this: id = msg_super![env; this init];
+    // As on iOS, the arguments must live until the operation runs.
+    () = msg![env; invocation retainArguments];
+    retain(env, invocation);
+    env.objc.borrow_mut::<NSInvocationOperationHostObject>(this).invocation = invocation;
+    this
+}
+
 - (())main {
     let host_object = env.objc.borrow::<NSInvocationOperationHostObject>(this);
+    if host_object.invocation != nil {
+        let invocation = host_object.invocation;
+        return msg![env; invocation invoke];
+    }
 
     let target = host_object.target;
     let sel = host_object.sel.unwrap();
@@ -190,8 +206,10 @@ pub const CLASSES: ClassExports = objc_classes! {
     let host_object = env.objc.borrow::<NSInvocationOperationHostObject>(this);
     let target = host_object.target;
     let arg = host_object.arg;
+    let invocation = host_object.invocation;
     release(env, target);
     release(env, arg);
+    release(env, invocation);
     // NSOperation's releases the dependencies.
     msg_super![env; this dealloc]
 }

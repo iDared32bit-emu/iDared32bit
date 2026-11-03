@@ -6655,6 +6655,42 @@ int test_NSInvocation_scalarArguments() {
   return res;
 }
 
+int test_NSInvocationOperation_invocation() {
+  NSAutoreleasePool *pool = [NSAutoreleasePool new];
+
+  InvocationTarget *target = [InvocationTarget new];
+  SEL sel = NSSelectorFromString([NSString stringWithUTF8String:"storeValue:"]);
+  NSInvocation *inv = [NSInvocation
+      invocationWithMethodSignature:[target methodSignatureForSelector:sel]];
+  [inv setTarget:target];
+  [inv setSelector:sel];
+  NSObject *val = [NSObject new];
+  [inv setArgument:&val atIndex:2];
+  NSUInteger before = [val retainCount];
+
+  // The operation keeps the arguments alive until it runs.
+  NSInvocationOperation *op =
+      [[NSInvocationOperation alloc] initWithInvocation:inv];
+  NSUInteger retained = [val retainCount];
+  int res = 0;
+  if (retained <= before)
+    res = -3;
+  // Retaining them again does nothing.
+  [inv retainArguments];
+  if (res == 0 && [val retainCount] != retained)
+    res = -4;
+  [op start];
+  if (res == 0 && ![op isFinished])
+    res = -1;
+  else if (res == 0 && target->receivedValue != val)
+    res = -2;
+  [op release];
+  [val release];
+  [target release];
+  [pool drain];
+  return res;
+}
+
 int test_NSInvocation_invokeWithTarget() {
   NSAutoreleasePool *pool = [NSAutoreleasePool new];
 
@@ -8053,6 +8089,7 @@ struct {
     FUNC_DEF(test_NSMethodSignature),
     FUNC_DEF(test_NSInvocation),
     FUNC_DEF(test_NSInvocation_scalarArguments),
+    FUNC_DEF(test_NSInvocationOperation_invocation),
     FUNC_DEF(test_NSInvocation_invokeWithTarget),
     FUNC_DEF(test_NSInvocation_retainArguments),
     FUNC_DEF(test_NSInvocation_pointer),
