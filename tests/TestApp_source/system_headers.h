@@ -92,6 +92,7 @@ void (*method_getImplementation(Method m))(void);
 // Foundation
 
 @class NSMethodSignature;
+@class NSError;
 @class NSString;
 @class NSThread;
 
@@ -281,6 +282,7 @@ typedef enum {
 + (NSNumber *)numberWithUnsignedInt:(unsigned int)value;
 - (const char *)objCType;
 - (int)intValue;
+- (unsigned long long)unsignedLongLongValue;
 - (float)floatValue;
 - (BOOL)boolValue;
 @end
@@ -373,6 +375,11 @@ typedef double NSTimeInterval;
 
 NSString *NSHomeDirectory(void);
 extern NSString *const NSFileType;
+extern NSString *const NSFileSystemSize;
+extern NSString *const NSFileSystemFreeSize;
+extern NSString *const NSURLErrorDomain;
+extern NSString *const NSUnderlyingErrorKey;
+extern double NSFoundationVersionNumber;
 extern NSString *const NSFileTypeDirectory;
 extern NSString *const NSFileTypeRegular;
 
@@ -397,6 +404,8 @@ typedef enum {
 @interface NSFileManager : NSObject
 + (NSFileManager *)defaultManager;
 - (BOOL)isExecutableFileAtPath:(NSString *)path;
+- (NSDictionary *)attributesOfFileSystemForPath:(NSString *)path
+                                          error:(NSError **)error;
 - (NSDirectoryEnumerator *)enumeratorAtPath:(NSString *)path;
 - (NSDirectoryEnumerator *)enumeratorAtURL:(NSURL *)url
                 includingPropertiesForKeys:(NSArray *)keys

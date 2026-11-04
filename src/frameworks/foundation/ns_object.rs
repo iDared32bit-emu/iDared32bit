@@ -18,11 +18,13 @@
 use super::ns_string::{from_rust_string, to_rust_string};
 use super::{ns_key_value_observing, NSTimeInterval, NSUInteger};
 use crate::abi::GuestFunction;
+use crate::dyld::{ConstantExports, HostConstant};
 use crate::frameworks::foundation::ns_run_loop::{
     add_perform_request, cancel_perform_requests, run_loop_for_thread_id,
 };
 use crate::frameworks::foundation::ns_thread::{detach_new_thread_inner, thread_id_for_ns_thread};
 use crate::libc::semaphore::{host_destroy_semaphore, sem_wait};
+use crate::mem::ConstVoidPtr;
 use crate::mem::MutVoidPtr;
 use crate::objc::{
     autorelease, id, msg, msg_class, msg_send, msg_send_no_type_checking, nil, objc_classes,
@@ -31,7 +33,20 @@ use crate::objc::{
     TYPE_LONGLONG, TYPE_SEL, TYPE_SHORT, TYPE_UCHAR, TYPE_UINT, TYPE_ULONG, TYPE_ULONGLONG,
     TYPE_UNDEF, TYPE_USHORT, TYPE_VOID,
 };
+use crate::window::DeviceFamily;
 use crate::Environment;
+
+pub const CONSTANTS: ConstantExports = &[(
+    "_NSFoundationVersionNumber",
+    // Apple's values for the iPhone OS versions UIDevice reports.
+    HostConstant::Custom(|env| -> ConstVoidPtr {
+        let version: f64 = match env.options.device_family {
+            Some(DeviceFamily::iPad) => 678.60, // iPhone OS 3.2
+            _ => 678.24,                        // iPhone OS 2.0
+        };
+        env.mem.alloc_and_write(version).cast().cast_const()
+    }),
+)];
 
 /// The `NSMethodSignature*` of an instance method of `class`, or nil if
 /// there's no such method.

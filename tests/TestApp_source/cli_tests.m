@@ -763,6 +763,29 @@ int test_statfs() {
   return 0;
 }
 
+int test_Foundation_constants() {
+  NSAutoreleasePool *pool = [NSAutoreleasePool new];
+  int res = 0;
+  if (![NSURLErrorDomain
+          isEqualToString:[NSString stringWithUTF8String:"NSURLErrorDomain"]] ||
+      ![NSUnderlyingErrorKey
+          isEqualToString:[NSString stringWithUTF8String:"NSUnderlyingError"]])
+    res = -1;
+  // iPhone OS 2.0 is 678.24; later versions are higher.
+  if (res == 0 && NSFoundationVersionNumber < 678.24)
+    res = -2;
+  NSDictionary *attrs = [[NSFileManager defaultManager]
+      attributesOfFileSystemForPath:NSHomeDirectory()
+                              error:NULL];
+  NSNumber *size = [attrs objectForKey:NSFileSystemSize];
+  NSNumber *free = [attrs objectForKey:NSFileSystemFreeSize];
+  if (res == 0 && (size == nil || free == nil ||
+                   [size unsignedLongLongValue] < [free unsignedLongLongValue]))
+    res = -3;
+  [pool drain];
+  return res;
+}
+
 int test_NSAssertionHandler() {
   // A failure would end the test app, so only the handler itself is checked.
   NSAssertionHandler *handler = [NSAssertionHandler currentHandler];
@@ -8791,6 +8814,7 @@ struct {
     FUNC_DEF(test_class_copyPropertyList),
     FUNC_DEF(test_statfs),
     FUNC_DEF(test_Foundation_small_gaps),
+    FUNC_DEF(test_Foundation_constants),
     FUNC_DEF(test_NSAssertionHandler),
     FUNC_DEF(test_NSError),
     FUNC_DEF(test_NSURLConnection_offline),

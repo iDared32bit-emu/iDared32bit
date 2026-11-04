@@ -29,6 +29,7 @@ const NSUserDomainMask: NSSearchPathDomainMask = 1;
 pub const NSFileModificationDate: &str = "NSFileModificationDate";
 pub const NSFileSize: &str = "NSFileSize";
 const NSFileSystemFreeSize: &str = "NSFileSystemFreeSize";
+const NSFileSystemSize: &str = "NSFileSystemSize";
 pub const NSFileType: &str = "NSFileType";
 pub const NSFileTypeDirectory: &str = "NSFileTypeDirectory";
 pub const NSFileTypeRegular: &str = "NSFileTypeRegular";
@@ -42,6 +43,10 @@ pub const CONSTANTS: ConstantExports = &[
     (
         "_NSFileSystemFreeSize",
         HostConstant::NSString(NSFileSystemFreeSize),
+    ),
+    (
+        "_NSFileSystemSize",
+        HostConstant::NSString(NSFileSystemSize),
     ),
     ("_NSFileType", HostConstant::NSString(NSFileType)),
     (
@@ -505,7 +510,7 @@ includingPropertiesForKeys:(id)_keys // NSArray*, only prefetching
 - (id)attributesOfFileSystemForPath:(id)_path
                               error:(MutPtr<id>)error {
     // TODO: other attributes
-    log_once!("Warning: NSFileManager attributesOfFileSystemForPath:error: returns only NSFileSystemFreeSize attribute!");
+    log_once!("Warning: NSFileManager attributesOfFileSystemForPath:error: returns only NSFileSystemSize and NSFileSystemFreeSize attributes!");
 
     assert!(error.is_null()); // TODO
 
@@ -519,6 +524,12 @@ includingPropertiesForKeys:(id)_keys // NSArray*, only prefetching
 
     let fs_free_size_key = get_static_str(env, NSFileSystemFreeSize);
     () = msg![env; dict setObject:size_num forKey:fs_free_size_key];
+
+    // Like an 8 GB iPhone.
+    let total: u64 = 8 * 1024 * 1024 * 1024;
+    let total_num: id = msg_class![env; NSNumber numberWithUnsignedLongLong:total];
+    let fs_size_key = get_static_str(env, NSFileSystemSize);
+    () = msg![env; dict setObject:total_num forKey:fs_size_key];
 
     let dict_imm = msg![env; dict copy];
     release(env, dict);

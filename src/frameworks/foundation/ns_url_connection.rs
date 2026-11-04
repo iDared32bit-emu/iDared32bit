@@ -11,6 +11,7 @@
 use super::ns_error::NSLocalizedDescriptionKey;
 use super::ns_run_loop::add_perform_request;
 use super::{ns_string, NSInteger};
+use crate::dyld::{ConstantExports, HostConstant};
 use crate::environment::Environment;
 use crate::mem::MutPtr;
 use crate::objc::{
@@ -33,6 +34,11 @@ struct NSURLConnectionHostObject {
 impl HostObject for NSURLConnectionHostObject {}
 
 const NSURLErrorDomain: &str = "NSURLErrorDomain";
+
+pub const CONSTANTS: ConstantExports = &[(
+    "_NSURLErrorDomain",
+    HostConstant::NSString(NSURLErrorDomain),
+)];
 
 /// Our helper type, Foundation just uses ints.
 type NSURLErrorCode = NSInteger;
