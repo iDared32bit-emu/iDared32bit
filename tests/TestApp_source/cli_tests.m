@@ -916,6 +916,88 @@ int test_valueForKey() {
   return res;
 }
 
+int test_NSString_ranges_and_encodings() {
+  NSAutoreleasePool *pool = [NSAutoreleasePool new];
+  int res = 0;
+  NSString *s = [NSString stringWithUTF8String:"abcABCabc"];
+  NSString *abc = [NSString stringWithUTF8String:"abc"];
+  NSRange all = NSMakeRange(0, 9);
+  NSRange r;
+  // Only matches inside the range count.
+  r = [s rangeOfString:abc options:0 range:NSMakeRange(1, 8)];
+  if (r.location != 6 || r.length != 3)
+    res = -1;
+  r = [s rangeOfString:abc
+               options:NSCaseInsensitiveSearch
+                 range:NSMakeRange(1, 8)];
+  if (res == 0 && r.location != 3)
+    res = -2;
+  r = [s rangeOfString:abc
+               options:NSBackwardsSearch | NSCaseInsensitiveSearch
+                 range:NSMakeRange(0, 8)];
+  if (res == 0 && r.location != 3)
+    res = -3;
+  r = [s rangeOfString:abc options:NSAnchoredSearch range:NSMakeRange(1, 8)];
+  if (res == 0 && r.location != NSNotFound)
+    res = -4;
+  r = [s rangeOfString:abc
+               options:NSAnchoredSearch | NSBackwardsSearch
+                 range:all];
+  if (res == 0 && r.location != 6)
+    res = -5;
+
+  // "héllo": é is two bytes in UTF-8, one in Latin-1, none in ASCII.
+  NSString *h = [NSString stringWithUTF8String:"h\xc3\xa9llo"];
+  if (res == 0 && ([h canBeConvertedToEncoding:1 /* ASCII */] ||
+                   ![h canBeConvertedToEncoding:5 /* ISO Latin 1 */] ||
+                   ![h canBeConvertedToEncoding:4 /* UTF-8 */]))
+    res = -6;
+  char buf[8] = {0};
+  NSUInteger used = 0;
+  NSRange left;
+  // Only whole characters fit.
+  BOOL ok = [h getBytes:buf
+              maxLength:2
+             usedLength:&used
+               encoding:4
+                options:0
+                  range:NSMakeRange(0, 5)
+         remainingRange:&left];
+  if (res == 0 && (!ok || used != 1 || buf[0] != 'h' || left.location != 1 ||
+                   left.length != 4))
+    res = -7;
+  // It stops at a character the encoding can't hold.
+  ok = [h getBytes:buf
+           maxLength:8
+          usedLength:&used
+            encoding:1
+             options:0
+               range:NSMakeRange(0, 5)
+      remainingRange:&left];
+  if (res == 0 && (!ok || used != 1 || left.location != 1))
+    res = -8;
+  // Without a buffer, it measures.
+  ok = [h getBytes:NULL
+           maxLength:0
+          usedLength:&used
+            encoding:4
+             options:0
+               range:NSMakeRange(0, 5)
+      remainingRange:NULL];
+  if (res == 0 && (!ok || used != 6))
+    res = -9;
+
+  NSMutableString *m = [NSMutableString stringWithCapacity:16];
+  [m appendString:[NSString stringWithUTF8String:"hello world"]];
+  [m replaceCharactersInRange:NSMakeRange(6, 5)
+                   withString:[NSString stringWithUTF8String:"there"]];
+  if (res == 0 &&
+      ![m isEqualToString:[NSString stringWithUTF8String:"hello there"]])
+    res = -10;
+  [pool drain];
+  return res;
+}
+
 int test_NSData_description() {
   NSAutoreleasePool *pool = [NSAutoreleasePool new];
   int res = 0;
@@ -8630,6 +8712,7 @@ struct {
     FUNC_DEF(test_NSURLConnection_offline),
     FUNC_DEF(test_NSNumber_objCType),
     FUNC_DEF(test_valueForKey),
+    FUNC_DEF(test_NSString_ranges_and_encodings),
     FUNC_DEF(test_NSData_description),
     FUNC_DEF(test_CC_SHA256),
     FUNC_DEF(test_CCCrypt),

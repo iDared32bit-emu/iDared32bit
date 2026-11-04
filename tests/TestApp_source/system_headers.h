@@ -58,6 +58,7 @@ typedef signed char BOOL;
 
 typedef unsigned long NSUInteger;
 typedef signed long NSInteger;
+#define NSNotFound ((NSInteger)(~0UL >> 1))
 
 typedef struct _NSRange {
   NSUInteger location;
@@ -198,6 +199,8 @@ typedef struct {
 typedef enum {
   NSCaseInsensitiveSearch = 1,
   NSLiteralSearch = 2,
+  NSBackwardsSearch = 4,
+  NSAnchoredSearch = 8,
   NSNumericSearch = 64,
   NSForcedOrderingSearch = 512,
 } NSStringCompareOptions;
@@ -226,6 +229,17 @@ typedef enum {
 - (NSUInteger)length;
 - (unsigned short)characterAtIndex:(NSUInteger)index;
 - (NSArray *)componentsSeparatedByString:(NSString *)separator;
+- (NSRange)rangeOfString:(NSString *)string
+                 options:(NSStringCompareOptions)mask
+                   range:(NSRange)range;
+- (BOOL)canBeConvertedToEncoding:(NSUInteger)encoding;
+- (BOOL)getBytes:(void *)buffer
+         maxLength:(NSUInteger)maxLength
+        usedLength:(NSUInteger *)usedLength
+          encoding:(NSUInteger)encoding
+           options:(NSUInteger)options
+             range:(NSRange)range
+    remainingRange:(NSRange *)leftover;
 @end
 
 @interface NSSortDescriptor : NSObject
@@ -238,8 +252,11 @@ typedef enum {
 - (SEL)selector;
 @end
 @interface NSMutableString : NSString
++ (instancetype)stringWithCapacity:(NSUInteger)capacity;
+- (void)appendString:(NSString *)string;
 - (void)deleteCharactersInRange:(NSRange)range;
 - (void)insertString:(NSString *)string atIndex:(NSUInteger)index;
+- (void)replaceCharactersInRange:(NSRange)range withString:(NSString *)string;
 @end
 
 @interface NSValue : NSObject

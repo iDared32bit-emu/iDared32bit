@@ -59,6 +59,7 @@ pub type NSStringCompareOptions = NSUInteger;
 pub const NSCaseInsensitiveSearch: NSUInteger = 1;
 pub const NSLiteralSearch: NSUInteger = 2;
 pub const NSBackwardsSearch: NSUInteger = 4;
+pub const NSAnchoredSearch: NSUInteger = 8;
 pub const NSNumericSearch: NSUInteger = 64;
 pub const NSForcedOrderingSearch: NSUInteger = 512;
 
@@ -592,49 +593,121 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 - (NSRange)rangeOfString:(id)search_string
                  options:(NSStringCompareOptions)options { // NSString *
-    log_dbg!(
-        "[(NSString *){} rangeOfString:{} options:{}]",
-        to_rust_string(env, this), to_rust_string(env, search_string), options
-    );
     let len: NSUInteger = msg![env; this length];
+    let range = NSRange { location: 0, length: len };
+    msg![env; this rangeOfString:search_string options:options range:range]
+}
+
+- (NSRange)rangeOfString:(id)search_string // NSString *
+                 options:(NSStringCompareOptions)options
+                   range:(NSRange)range {
+    log_dbg!(
+        "[(NSString *){} rangeOfString:{} options:{} range:{:?}]",
+        to_rust_string(env, this), to_rust_string(env, search_string), options, range
+    );
+    let not_found = NSRange { location: NSNotFound as NSUInteger, length: 0 };
+    let len: NSUInteger = msg![env; this length];
+    let end = range.location + range.length;
+    // iOS raises NSRangeException.
+    assert!(end <= len, "Range {range:?} beyond length {len}");
     let len_search: NSUInteger = msg![env; search_string length];
-    if len_search == 0 {
-        return NSRange { location: NSNotFound as NSUInteger, length: 0 };
+    if len_search == 0 || len_search > range.length {
+        return not_found;
     }
-    // TODO: other search options
-    // TODO: OR'ing of options
-    match options {
-        // 0 is for default options, which is NSLiteralSearch
-        NSLiteralSearch | 0 => {
-            for i in 0..len {
-                if is_match_at_position(env, this, search_string, i, len, len_search, |a, b| a == b) {
-                    return NSRange { location: i, length: len_search }
-                }
-            }
-        },
-        NSCaseInsensitiveSearch => {
-            let compare = |a, b| {
-                let (Some(a_c), Some(b_c)) = (char::from_u32(a as u32), char::from_u32(b as u32)) else {
-                    panic!("Invalid chars in the strings!");
-                };
-                a_c.to_lowercase().eq(b_c.to_lowercase())
-            };
-            for i in 0..len {
-                if is_match_at_position(env, this, search_string, i, len, len_search, compare) {
-                    return NSRange { location: i, length: len_search }
-                }
-            }
-        },
-        NSBackwardsSearch => {
-            for i in (0..len).rev() {
-                if is_match_at_position(env, this, search_string, i, len, len_search, |a, b| a == b) {
-                    return NSRange { location: i, length: len_search }
-                }
-            }
-        },
-        _ => unimplemented!("options {}", options)
+    let unsupported =
+        options & !(NSCaseInsensitiveSearch | NSLiteralSearch | NSBackwardsSearch | NSAnchoredSearch);
+    if unsupported != 0 {
+        unimplemented!("options {:#x}", unsupported);
     }
-    NSRange { location: NSNotFound as NSUInteger, length: 0 }
+    // Where a match may start. Anchored searches only try the end they
+    // start from.
+    let first = range.location;
+    let last = end - len_search;
+    let starts: Vec<NSUInteger> = match (
+        options & NSAnchoredSearch != 0,
+        options & NSBackwardsSearch != 0,
+    ) {
+        (true, false) => vec![first],
+        (true, true) => vec![last],
+        (false, false) => (first..=last).collect(),
+        (false, true) => (first..=last).rev().collect(),
+    };
+    let case_insensitive = options & NSCaseInsensitiveSearch != 0;
+    let compare = |a, b| {
+        if !case_insensitive {
+            return a == b;
+        }
+        let (Some(a_c), Some(b_c)) = (char::from_u32(a as u32), char::from_u32(b as u32)) else {
+            panic!("Invalid chars in the strings!");
+        };
+        a_c.to_lowercase().eq(b_c.to_lowercase())
+    };
+    for i in starts {
+        if is_match_at_position(env, this, search_string, i, end, len_search, compare) {
+            return NSRange { location: i, length: len_search }
+        }
+    }
+    not_found
+}
+
+- (bool)canBeConvertedToEncoding:(NSStringEncoding)encoding {
+    let length: NSUInteger = msg![env; this length];
+    let units: Vec<u16> = (0..length).map(|i| msg![env; this characterAtIndex:i]).collect();
+    char::decode_utf16(units)
+        .all(|c| c.ok().and_then(|c| encode_char(c, encoding)).is_some())
+}
+
+// Converts whole characters in the range, until the buffer is full or one
+// can't be converted (unless lossy conversion is allowed).
+- (bool)getBytes:(MutPtr<u8>)buffer
+       maxLength:(NSUInteger)max_length
+      usedLength:(MutPtr<NSUInteger>)used_length
+        encoding:(NSStringEncoding)encoding
+         options:(NSUInteger)options
+           range:(NSRange)range
+  remainingRange:(MutPtr<NSRange>)remaining_range {
+    const NSStringEncodingConversionAllowLossy: NSUInteger = 1;
+    let unsupported = options & !NSStringEncodingConversionAllowLossy;
+    if unsupported != 0 {
+        unimplemented!("getBytes: options {:#x}", unsupported);
+    }
+    let lossy = options & NSStringEncodingConversionAllowLossy != 0;
+    let end = range.location + range.length;
+    let units: Vec<u16> =
+        (range.location..end).map(|i| msg![env; this characterAtIndex:i]).collect();
+
+    let mut used: NSUInteger = 0;
+    let mut converted: NSUInteger = 0; // in UTF-16 code units
+    for c in char::decode_utf16(units.iter().copied()) {
+        let c = c.ok();
+        let width: NSUInteger = c.map_or(1, |c| c.len_utf16().try_into().unwrap());
+        let bytes = match c.and_then(|c| encode_char(c, encoding)) {
+            Some(bytes) => bytes,
+            None if lossy => encode_char('?', encoding).unwrap(),
+            None => break,
+        };
+        let size: NSUInteger = bytes.len().try_into().unwrap();
+        if !buffer.is_null() {
+            if used + size > max_length {
+                break;
+            }
+            env.mem.bytes_at_mut(buffer + used, size).copy_from_slice(&bytes);
+        }
+        used += size;
+        converted += width;
+    }
+
+    if !used_length.is_null() {
+        env.mem.write(used_length, used);
+    }
+    if !remaining_range.is_null() {
+        let remaining = NSRange {
+            location: range.location + converted,
+            length: range.length - converted,
+        };
+        env.mem.write(remaining_range, remaining);
+    }
+    converted > 0
 }
 
 - (NSRange)rangeOfCharacterFromSet:(id)set { // NSCharacterSet *
@@ -1431,6 +1504,20 @@ pub const CLASSES: ClassExports = objc_classes! {
     () = msg![env; this setString:res];
 }
 
+- (())replaceCharactersInRange:(NSRange)range
+                   withString:(id)a_string { // NSString*
+    assert_ne!(a_string, nil);
+    let length: NSUInteger = msg![env; this length];
+    let end = range.location + range.length;
+    // iOS raises NSRangeException.
+    assert!(end <= length, "Range {range:?} beyond length {length}");
+    let left: id = msg![env; this substringToIndex:(range.location)];
+    let right: id = msg![env; this substringFromIndex:end];
+    let res: id = msg![env; left stringByAppendingString:a_string];
+    let res: id = msg![env; res stringByAppendingString:right];
+    () = msg![env; this setString:res];
+}
+
 - (())deleteCharactersInRange:(NSRange)range {
     let location = range.location;
     let length = range.length;
@@ -2007,6 +2094,35 @@ where
 
 /// Helper function for `rangeOfString:options:` method
 /// Note: this implementation is linear
+/// One character in an encoding, or [None] if the encoding can't hold it.
+fn encode_char(c: char, encoding: NSStringEncoding) -> Option<Vec<u8>> {
+    let code = c as u32;
+    match encoding {
+        NSUTF8StringEncoding => Some(c.to_string().into_bytes()),
+        NSASCIIStringEncoding => (code < 0x80).then(|| vec![code as u8]),
+        NSISOLatin1StringEncoding => (code < 0x100).then(|| vec![code as u8]),
+        NSMacOSRomanStringEncoding if code < 0x80 => Some(vec![code as u8]),
+        // iOS uses the host byte order, which is little-endian.
+        NSUTF16StringEncoding | NSUTF16LittleEndianStringEncoding => Some(
+            c.encode_utf16(&mut [0; 2])
+                .iter()
+                .flat_map(|u| u.to_le_bytes())
+                .collect(),
+        ),
+        NSUTF16BigEndianStringEncoding => Some(
+            c.encode_utf16(&mut [0; 2])
+                .iter()
+                .flat_map(|u| u.to_be_bytes())
+                .collect(),
+        ),
+        NSUTF32StringEncoding | NSUTF32LittleEndianStringEncoding => {
+            Some(code.to_le_bytes().to_vec())
+        }
+        NSUTF32BigEndianStringEncoding => Some(code.to_be_bytes().to_vec()),
+        _ => unimplemented!("encoding {:#x} for {:?}", encoding, c),
+    }
+}
+
 fn is_match_at_position<F: Fn(u16, u16) -> bool>(
     env: &mut Environment,
     the_string: id,
