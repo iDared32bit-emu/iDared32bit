@@ -6,12 +6,20 @@
 //! `UIScreen`.
 
 use crate::frameworks::core_graphics::{CGFloat, CGPoint, CGRect, CGSize};
-use crate::objc::{id, msg, msg_class, objc_classes, ClassExports, TrivialHostObject};
+use crate::objc::{
+    autorelease, id, msg, msg_class, objc_classes, ClassExports, HostObject, TrivialHostObject,
+};
 
 #[derive(Default)]
 pub struct State {
     main_screen: Option<id>,
 }
+
+struct UIScreenModeHostObject {
+    /// In pixels.
+    size: CGSize,
+}
+impl HostObject for UIScreenModeHostObject {}
 
 pub const CLASSES: ClassExports = objc_classes! {
 
@@ -72,6 +80,50 @@ pub const CLASSES: ClassExports = objc_classes! {
 - (CGFloat)scale {
     // TODO: support retina
     1.0
+}
+
+// The main screen has just one mode: its size in pixels.
+- (id)currentMode {
+    let bounds: CGRect = msg![env; this bounds];
+    let scale: CGFloat = msg![env; this scale];
+    let size = CGSize {
+        width: bounds.size.width * scale,
+        height: bounds.size.height * scale,
+    };
+    let class = env.objc.get_known_class("UIScreenMode", &mut env.mem);
+    let mode = env.objc.alloc_object(class, Box::new(UIScreenModeHostObject { size }), &mut env.mem);
+    autorelease(env, mode)
+}
+- (id)availableModes {
+    let mode: id = msg![env; this currentMode];
+    msg_class![env; NSArray arrayWithObject:mode]
+}
+- (())setCurrentMode:(id)mode { // UIScreenMode*
+    let current: id = msg![env; this currentMode];
+    let size: CGSize = msg![env; mode size];
+    let current_size: CGSize = msg![env; current size];
+    // There's no other mode to change to.
+    assert!(size.width == current_size.width && size.height == current_size.height);
+}
+
+@end
+
+@implementation UIScreenMode: NSObject
+
+- (CGSize)size {
+    env.objc.borrow::<UIScreenModeHostObject>(this).size
+}
+- (CGFloat)pixelAspectRatio {
+    1.0
+}
+- (bool)isEqual:(id)other {
+    let class: id = msg![env; this class];
+    if !msg![env; other isKindOfClass:class] {
+        return false;
+    }
+    let size: CGSize = msg![env; this size];
+    let other_size: CGSize = msg![env; other size];
+    size.width == other_size.width && size.height == other_size.height
 }
 
 @end

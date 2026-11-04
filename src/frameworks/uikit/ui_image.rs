@@ -7,9 +7,7 @@
 
 use crate::dyld::{export_c_func, FunctionExports};
 use crate::frameworks::core_graphics::cg_context::CGContextDrawImage;
-use crate::frameworks::core_graphics::cg_image::{
-    self, CGImageGetHeight, CGImageGetWidth, CGImageRef, CGImageRelease, CGImageRetain,
-};
+use crate::frameworks::core_graphics::cg_image::{self, CGImageRef, CGImageRelease, CGImageRetain};
 use crate::frameworks::core_graphics::{CGFloat, CGPoint, CGRect, CGSize};
 use crate::frameworks::foundation::ns_string::get_static_str;
 use crate::frameworks::foundation::{ns_data, ns_string, NSInteger};
@@ -43,6 +41,8 @@ impl State {
 
 struct UIImageHostObject {
     cg_image: CGImageRef,
+    /// Pixels per point, e.g. 2.0 for a Retina image.
+    scale: CGFloat,
 }
 impl HostObject for UIImageHostObject {}
 
@@ -53,13 +53,24 @@ pub const CLASSES: ClassExports = objc_classes! {
 @implementation UIImage: NSObject
 
 + (id)allocWithZone:(NSZonePtr)_zone {
-    let host_object = Box::new(UIImageHostObject { cg_image: nil });
+    let host_object = Box::new(UIImageHostObject {
+        cg_image: nil,
+        scale: 1.0,
+    });
     env.objc.alloc_object(this, host_object, &mut env.mem)
 }
 
 + (id)imageWithCGImage:(CGImageRef)cg_image {
     let new: id = msg![env; this alloc];
     let new: id = msg![env; new initWithCGImage:cg_image];
+    autorelease(env, new)
+}
+
++ (id)imageWithCGImage:(CGImageRef)cg_image
+                  scale:(CGFloat)scale
+            orientation:(NSInteger)orientation { // UIImageOrientation
+    let new: id = msg![env; this alloc];
+    let new: id = msg![env; new initWithCGImage:cg_image scale:scale orientation:orientation];
     autorelease(env, new)
 }
 
@@ -106,7 +117,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (())dealloc {
-    let &UIImageHostObject { cg_image } = env.objc.borrow(this);
+    let &UIImageHostObject { cg_image, .. } = env.objc.borrow(this);
     CGImageRelease(env, cg_image);
 
     env.objc.dealloc_object(this, &mut env.mem)
@@ -115,6 +126,18 @@ pub const CLASSES: ClassExports = objc_classes! {
 - (id)initWithCGImage:(CGImageRef)cg_image {
     CGImageRetain(env, cg_image);
     env.objc.borrow_mut::<UIImageHostObject>(this).cg_image = cg_image;
+    this
+}
+
+- (id)initWithCGImage:(CGImageRef)cg_image
+                 scale:(CGFloat)scale
+           orientation:(NSInteger)orientation { // UIImageOrientation
+    // TODO: images and views would have to draw these rotated or mirrored.
+    if orientation != 0 {
+        unimplemented!("UIImage with UIImageOrientation {}", orientation);
+    }
+    let this: id = msg![env; this initWithCGImage:cg_image];
+    env.objc.borrow_mut::<UIImageHostObject>(this).scale = scale;
     this
 }
 
@@ -165,18 +188,19 @@ pub const CLASSES: ClassExports = objc_classes! {
     0 // UIImageOrientationUp
 }
 
+// In points: the image's pixels divided by its scale.
 - (CGSize)size {
-    let image = env.objc.borrow::<UIImageHostObject>(this).cg_image;
-    let (width, height) = cg_image::borrow_image(&env.objc, image).dimensions();
+    let &UIImageHostObject { cg_image, scale } = env.objc.borrow(this);
+    let (width, height) = cg_image::borrow_image(&env.objc, cg_image).dimensions();
     CGSize {
-        width: width as _,
-        height: height as _,
+        width: width as CGFloat / scale,
+        height: height as CGFloat / scale,
     }
 }
 
 - (CGFloat)scale {
-    // TODO: support other scales, such as @2x
-    1.0
+    // TODO: load @2x images with a scale of 2
+    env.objc.borrow::<UIImageHostObject>(this).scale
 }
 
 - (())drawInRect:(CGRect)rect {
@@ -194,10 +218,7 @@ pub const CLASSES: ClassExports = objc_classes! {
     let image = env.objc.borrow::<UIImageHostObject>(this).cg_image;
     let rect = CGRect {
         origin: point,
-        size: CGSize {
-            width: CGImageGetWidth(env, image) as CGFloat,
-            height: CGImageGetHeight(env, image) as CGFloat,
-        }
+        size: msg![env; this size],
     };
     CGContextDrawImage(env, context, rect, image);
 }

@@ -84,6 +84,9 @@ struct MPMoviePlayerControllerHostObject {
     content_url: id,
     movie_source_type: MPMovieSourceType,
     should_autoplay: bool,
+    // Stored for games to read back: playback is faked, so they do nothing.
+    control_style: MPMovieControlStyle,
+    use_application_audio_session: bool,
     // UIView *, made when first asked for
     background_view: id,
 }
@@ -102,6 +105,8 @@ pub const CLASSES: ClassExports = objc_classes! {
         content_url: nil,
         movie_source_type: MPMovieSourceTypeUnknown,
         should_autoplay: true,
+        control_style: 1, // MPMovieControlStyleDefault
+        use_application_audio_session: true,
         background_view: nil,
     });
     env.objc.alloc_object(this, host_object, &mut env.mem)
@@ -149,11 +154,18 @@ pub const CLASSES: ClassExports = objc_classes! {
 - (())setScalingMode:(MPMovieScalingMode)mode {
     todo_objc_setter!(this, mode);
 }
+- (bool)useApplicationAudioSession {
+    env.objc.borrow::<MPMoviePlayerControllerHostObject>(this).use_application_audio_session
+}
 - (())setUseApplicationAudioSession:(bool)use_session {
-    todo_objc_setter!(this, use_session);
+    env.objc.borrow_mut::<MPMoviePlayerControllerHostObject>(this).use_application_audio_session =
+        use_session;
+}
+- (MPMovieControlStyle)controlStyle {
+    env.objc.borrow::<MPMoviePlayerControllerHostObject>(this).control_style
 }
 - (())setControlStyle:(MPMovieControlStyle)style {
-    todo_objc_setter!(this, style);
+    env.objc.borrow_mut::<MPMoviePlayerControllerHostObject>(this).control_style = style;
 }
 - (())setFullscreen:(bool)fullsreen {
     todo_objc_setter!(this, fullsreen);

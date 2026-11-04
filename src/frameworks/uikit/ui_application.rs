@@ -10,7 +10,7 @@ use crate::dyld::{export_c_func, ConstantExports, FunctionExports, HostConstant}
 use crate::frameworks::core_graphics::cg_geometry::CGRectZero;
 use crate::frameworks::core_graphics::{CGPoint, CGRect, CGSize};
 use crate::frameworks::foundation::ns_string::{from_rust_string, get_static_str};
-use crate::frameworks::foundation::{ns_array, ns_string, NSInteger, NSUInteger};
+use crate::frameworks::foundation::{ns_array, ns_string, NSInteger, NSTimeInterval, NSUInteger};
 use crate::mem::MutPtr;
 use crate::objc::{
     autorelease, id, msg, msg_class, nil, objc_classes, release, retain, todo_objc_setter,
@@ -146,6 +146,15 @@ pub const CLASSES: ClassExports = objc_classes! {
                      animated:(bool)_animated {
     // TODO: animation
     msg![env; this setStatusBarOrientation:orientation]
+}
+
+- (NSTimeInterval)statusBarOrientationAnimationDuration {
+    0.3
+}
+
+- (NSInteger)applicationState { // UIApplicationState
+    // UIApplicationStateActive: games never run in the background here.
+    0
 }
 
 - (bool)isIdleTimerDisabled {
