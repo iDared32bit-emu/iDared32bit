@@ -57,7 +57,7 @@ use messages::{objc_msgSendSuper2, objc_msgSend_stret, MsgSendSignature, MsgSend
 use methods::{method_list_t, method_t};
 use objects::{objc_object, object_getClass, HostObjectEntry};
 use properties::{ivar_list_t, objc_copyStruct, objc_getProperty, objc_setProperty};
-use selectors::sel_registerName;
+use selectors::{sel_getName, sel_registerName};
 use synchronization::{objc_sync_enter, objc_sync_exit};
 
 /// Typedef for `NSZone *`. This is a [fossil type] found in the signature of
@@ -222,6 +222,7 @@ const FUNCTIONS: FunctionExports = &[
     export_c_func!(objc_sync_enter(_)),
     export_c_func!(objc_sync_exit(_)),
     export_c_func!(object_getClass(_)),
+    export_c_func!(sel_getName(_)),
     export_c_func!(sel_registerName(_)),
     export_c_func!(_Block_object_dispose(_, _)),
 ];

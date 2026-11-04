@@ -401,6 +401,14 @@ includingPropertiesForKeys:(id)_keys // NSArray*, only prefetching
     writable
 }
 
+- (bool)isExecutableFileAtPath:(id)path { // NSString*
+    let (_, _, _, executable) = {
+        let path = ns_string::to_rust_string(env, path); // TODO: avoid copy
+        env.fs.access(GuestPath::new(&path))
+    };
+    executable
+}
+
 - (bool)isDeletableFileAtPath:(id)path { // NSString*
     let is_file = {
         let path = ns_string::to_rust_string(env, path); // TODO: avoid copy

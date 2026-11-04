@@ -17,6 +17,8 @@ pub struct State {
 struct NSTimeZoneHostObject {
     // NSString*
     time_zone: id,
+    /// TODO: only `timeZoneForSecondsFromGMT:` sets this; named zones are GMT.
+    seconds_from_gmt: NSInteger,
 }
 impl HostObject for NSTimeZoneHostObject {}
 
@@ -29,6 +31,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 + (id)allocWithZone:(NSZonePtr)_zone {
     let host_object = Box::new(NSTimeZoneHostObject {
         time_zone: nil,
+        seconds_from_gmt: 0,
     });
     env.objc.alloc_object(this, host_object, &mut env.mem)
 }
@@ -36,6 +39,23 @@ pub const CLASSES: ClassExports = objc_classes! {
 + (id)timeZoneWithName:(id)tz_name {
     let new: id = msg![env; this alloc];
     let new: id = msg![env; new initWithName:tz_name];
+    autorelease(env, new)
+}
+
++ (id)timeZoneForSecondsFromGMT:(NSInteger)seconds {
+    // Named like iOS's, e.g. "GMT+0130".
+    let minutes = seconds.abs() / 60;
+    let name = if minutes == 0 {
+        "GMT".to_string()
+    } else {
+        let sign = if seconds < 0 { '-' } else { '+' };
+        format!("GMT{}{:02}{:02}", sign, minutes / 60, minutes % 60)
+    };
+    let name = ns_string::from_rust_string(env, name);
+    let new: id = msg![env; this alloc];
+    let new: id = msg![env; new initWithName:name];
+    release(env, name);
+    env.objc.borrow_mut::<NSTimeZoneHostObject>(new).seconds_from_gmt = seconds;
     autorelease(env, new)
 }
 
@@ -86,8 +106,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (NSInteger)secondsFromGMT {
-    // TODO: respect timezone
-    0
+    env.objc.borrow::<NSTimeZoneHostObject>(this).seconds_from_gmt
 }
 
 // NSCopying implementation

@@ -280,6 +280,11 @@ impl ObjC {
     }
 }
 
+/// Standard Objective-C runtime function for a selector's name.
+pub(super) fn sel_getName(_env: &mut Environment, sel: SEL) -> ConstPtr<u8> {
+    sel.0
+}
+
 /// Standard Objective-C runtime function for selector registration.
 pub(super) fn sel_registerName(env: &mut Environment, name: ConstPtr<u8>) -> SEL {
     let name = env.mem.cstr_at_utf8(name).unwrap();

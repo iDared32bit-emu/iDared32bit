@@ -679,6 +679,14 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 // These probably comes from some category related to plists.
+- (())removeObjectsForKeys:(id)keys { // NSArray*
+    let count: NSUInteger = msg![env; keys count];
+    for i in 0..count {
+        let key: id = msg![env; keys objectAtIndex:i];
+        () = msg![env; this removeObjectForKey:key];
+    }
+}
+
 - (id)initWithContentsOfFile:(id)path { // NSString*
     release(env, this);
     if path == nil {

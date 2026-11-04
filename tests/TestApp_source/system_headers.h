@@ -76,6 +76,7 @@ static inline NSRange NSMakeRange(NSUInteger loc, NSUInteger len) {
 
 // id objc_msgSend(id, SEL, ...);
 
+const char *sel_getName(SEL sel);
 typedef struct objc_method *Method;
 Method class_getInstanceMethod(Class cls, SEL name);
 typedef struct objc_property *objc_property_t;
@@ -91,6 +92,7 @@ void (*method_getImplementation(Method m))(void);
 // Foundation
 
 @class NSMethodSignature;
+@class NSString;
 @class NSThread;
 
 typedef struct {
@@ -113,6 +115,8 @@ typedef struct {
 - (instancetype)init;
 - (instancetype)self;
 - (Class)class;
+- (BOOL)isEqual:(id)object;
+- (NSString *)description;
 - (Class)superclass;
 - (instancetype)retain;
 - (void)release;
@@ -120,6 +124,10 @@ typedef struct {
 - (void)dealloc;
 - (NSUInteger)retainCount;
 - (id)performSelector:(SEL)selector;
+- (void)performSelector:(SEL)selector
+             withObject:(id)arg
+             afterDelay:(double)delay;
++ (void)cancelPreviousPerformRequestsWithTarget:(id)target;
 - (void)performSelector:(SEL)selector
                onThread:(NSThread *)thread
              withObject:(id)arg
@@ -182,6 +190,7 @@ typedef struct {
 
 @interface NSMutableDictionary<KeyType, ObjectType> : NSDictionary
 - (void)setObject:(ObjectType)anObject forKey:(KeyType)aKey;
+- (void)removeObjectsForKeys:(NSArray<KeyType> *)keys;
 @end
 
 @interface NSSet<ObjectType> : NSObject
@@ -387,6 +396,7 @@ typedef enum {
 
 @interface NSFileManager : NSObject
 + (NSFileManager *)defaultManager;
+- (BOOL)isExecutableFileAtPath:(NSString *)path;
 - (NSDirectoryEnumerator *)enumeratorAtPath:(NSString *)path;
 - (NSDirectoryEnumerator *)enumeratorAtURL:(NSURL *)url
                 includingPropertiesForKeys:(NSArray *)keys
@@ -491,6 +501,18 @@ SEL NSSelectorFromString(NSString *);
 
 @interface NSTimeZone : NSObject
 + (instancetype)timeZoneWithName:(NSString *)name;
++ (instancetype)timeZoneForSecondsFromGMT:(NSInteger)seconds;
+- (NSInteger)secondsFromGMT;
+- (NSString *)name;
+@end
+
+@interface NSCondition : NSObject
+- (void)lock;
+- (void)unlock;
+- (void)wait;
+- (BOOL)waitUntilDate:(NSDate *)limit;
+- (void)signal;
+- (void)broadcast;
 @end
 
 enum {

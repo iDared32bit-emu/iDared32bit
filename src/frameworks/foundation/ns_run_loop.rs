@@ -307,23 +307,26 @@ pub(super) fn cancel_perform_requests(
     env: &mut Environment,
     run_loop: id,
     target: id,
-    selector: SEL,
+    // None cancels all of the target's requests, whatever their argument.
+    selector: Option<SEL>,
     argument: id,
 ) {
     log_dbg!(
         "Removing object selector request {target:?} {:?} {argument:?} on run loop {run_loop:?}",
-        selector.as_str(env.mem.as_mut())
+        selector.map(|selector| selector.as_str(env.mem.as_mut()))
     );
     let mut new_selector_objects = VecDeque::new();
     let host_object = env.objc.borrow_mut::<NSRunLoopHostObject>(run_loop);
     let mut selector_objects = std::mem::take(&mut host_object.selector_objects);
     while let Some(obj) = selector_objects.pop_front() {
-        if obj.target != target || obj.selector != selector {
+        if obj.target != target || selector.is_some_and(|selector| obj.selector != selector) {
             new_selector_objects.push_back(obj);
             continue;
         }
         let curr_arg = obj.argument;
-        let arg_equal = if curr_arg.is_null() {
+        let arg_equal = if selector.is_none() {
+            true
+        } else if curr_arg.is_null() {
             argument.is_null()
         } else {
             msg![env; curr_arg isEqual:argument]

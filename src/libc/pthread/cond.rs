@@ -99,7 +99,7 @@ fn check_or_register_cond(env: &mut Environment, cond: MutPtr<pthread_cond_t>) -
     }
 }
 
-fn pthread_cond_timedwait(
+pub fn pthread_cond_timedwait(
     env: &mut Environment,
     cond: MutPtr<pthread_cond_t>,
     mutex: MutPtr<pthread_mutex_t>,

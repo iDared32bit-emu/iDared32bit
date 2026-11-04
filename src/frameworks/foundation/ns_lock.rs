@@ -11,15 +11,16 @@
 
 use crate::environment::MutexType::PTHREAD_MUTEX_RECURSIVE;
 use crate::environment::{MutexId, PTHREAD_MUTEX_DEFAULT};
-use crate::frameworks::foundation::NSInteger;
+use crate::frameworks::foundation::{NSInteger, NSTimeInterval};
 use crate::libc::pthread::cond::{
-    pthread_cond_broadcast, pthread_cond_destroy, pthread_cond_init, pthread_cond_t,
-    pthread_cond_wait,
+    pthread_cond_broadcast, pthread_cond_destroy, pthread_cond_init, pthread_cond_signal,
+    pthread_cond_t, pthread_cond_timedwait, pthread_cond_wait,
 };
 use crate::libc::pthread::mutex::{
     pthread_mutex_destroy, pthread_mutex_init, pthread_mutex_lock, pthread_mutex_t,
     pthread_mutex_trylock, pthread_mutex_unlock,
 };
+use crate::libc::time::{time_t, timespec};
 use crate::mem::{guest_size_of, ConstPtr, MutPtr};
 use crate::objc::{id, msg, nil, objc_classes, release, ClassExports, HostObject};
 
@@ -37,6 +38,13 @@ struct NSConditionLockHostObject {
     name: id,
 }
 impl HostObject for NSConditionLockHostObject {}
+
+struct NSConditionHostObject {
+    mutex: MutPtr<pthread_mutex_t>,
+    cond: MutPtr<pthread_cond_t>,
+    name: id,
+}
+impl HostObject for NSConditionHostObject {}
 
 pub const CLASSES: ClassExports = objc_classes! {
 
@@ -231,6 +239,81 @@ pub const CLASSES: ClassExports = objc_classes! {
     log_dbg!("[(NSConditionLock *){:?} dealloc]", this);
     release(env, env.objc.borrow::<NSConditionLockHostObject>(this).name);
     let &NSConditionLockHostObject { mutex, cond, .. } = env.objc.borrow(this);
+    pthread_cond_destroy(env, cond);
+    pthread_mutex_destroy(env, mutex);
+    env.mem.free(mutex.cast());
+    env.mem.free(cond.cast());
+    env.objc.dealloc_object(this, &mut env.mem)
+}
+
+@end
+
+@implementation NSCondition: NSObject
+
++ (id)alloc {
+    let mutex = env.mem.alloc(guest_size_of::<pthread_mutex_t>()).cast();
+    let cond = env.mem.alloc(guest_size_of::<pthread_cond_t>()).cast();
+    pthread_mutex_init(env, mutex, ConstPtr::null());
+    pthread_cond_init(env, cond, ConstPtr::null());
+    let host_object = NSConditionHostObject { mutex, cond, name: nil };
+    env.objc.alloc_object(this, Box::new(host_object), &mut env.mem)
+}
+
+// NSLocking protocol implementation
+- (())lock {
+    let mutex = env.objc.borrow::<NSConditionHostObject>(this).mutex;
+    pthread_mutex_lock(env, mutex);
+}
+- (())unlock {
+    let mutex = env.objc.borrow::<NSConditionHostObject>(this).mutex;
+    pthread_mutex_unlock(env, mutex);
+}
+
+- (())wait {
+    let &NSConditionHostObject { mutex, cond, .. } = env.objc.borrow(this);
+    pthread_cond_wait(env, cond, mutex);
+}
+
+// Returns false if the date passed before it was signaled.
+- (bool)waitUntilDate:(id)date { // NSDate*
+    let &NSConditionHostObject { mutex, cond, .. } = env.objc.borrow(this);
+    let secs: NSTimeInterval = msg![env; date timeIntervalSince1970];
+    // The guest's time_t ends in 2038, so later dates (like distantFuture)
+    // are as good as never.
+    let secs = secs.clamp(0.0, time_t::MAX as f64);
+    let abs_time = timespec {
+        tv_sec: secs as time_t,
+        tv_nsec: (secs.fract() * 1e9) as i32,
+    };
+    let abs_time_ptr = env.mem.alloc_and_write(abs_time);
+    let res = pthread_cond_timedwait(env, cond, mutex, abs_time_ptr.cast_const());
+    env.mem.free(abs_time_ptr.cast());
+    res == 0
+}
+
+- (())signal {
+    let cond = env.objc.borrow::<NSConditionHostObject>(this).cond;
+    pthread_cond_signal(env, cond);
+}
+
+- (())broadcast {
+    let cond = env.objc.borrow::<NSConditionHostObject>(this).cond;
+    pthread_cond_broadcast(env, cond);
+}
+
+- (())setName:(id)name { // NSString *
+    let old_name = env.objc.borrow::<NSConditionHostObject>(this).name;
+    // @property(copy), name has to be copied
+    env.objc.borrow_mut::<NSConditionHostObject>(this).name = msg![env; name copy];
+    release(env, old_name);
+}
+- (id)name {
+    env.objc.borrow::<NSConditionHostObject>(this).name
+}
+
+- (())dealloc {
+    release(env, env.objc.borrow::<NSConditionHostObject>(this).name);
+    let &NSConditionHostObject { mutex, cond, .. } = env.objc.borrow(this);
     pthread_cond_destroy(env, cond);
     pthread_mutex_destroy(env, mutex);
     env.mem.free(mutex.cast());

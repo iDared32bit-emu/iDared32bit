@@ -662,7 +662,7 @@ int test_vsnprintf() {
 }
 
 int test_NSObject_self() {
-  if ([NSObject self] != [NSObject class])
+  if ((Class)[NSObject self] != [NSObject class])
     return -1;
   NSObject *obj = [NSObject new];
   id result = [obj self];
@@ -3005,6 +3005,89 @@ int test_NSRunLoop_runMode() {
   if (pthread_create(&p, NULL, run_mode_pthread, &res) != 0 ||
       pthread_join(p, NULL) != 0)
     return -10;
+  return res;
+}
+
+// For test_Foundation_small_gaps.
+static NSCondition *g_condition;
+static volatile int g_condition_flag;
+void *condition_signal_pthread(void *arg) {
+  [g_condition lock];
+  g_condition_flag = 1;
+  [g_condition signal];
+  [g_condition unlock];
+  return NULL;
+}
+void *cancel_perform_pthread(void *arg) {
+  NSAutoreleasePool *pool = [NSAutoreleasePool new];
+  RunModeTarget *target = [RunModeTarget new];
+  [target performSelector:@selector(ping) withObject:nil afterDelay:0];
+  [NSObject cancelPreviousPerformRequestsWithTarget:target];
+  [[NSRunLoop currentRunLoop]
+         runMode:NSDefaultRunLoopMode
+      beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.1]];
+  *(int *)arg = target->ran;
+  [target release];
+  [pool release];
+  return NULL;
+}
+
+int test_Foundation_small_gaps() {
+  NSAutoreleasePool *pool = [NSAutoreleasePool new];
+  int res = 0;
+
+  NSString *a = [NSString stringWithUTF8String:"a"];
+  NSString *b = [NSString stringWithUTF8String:"b"];
+  NSString *c = [NSString stringWithUTF8String:"c"];
+  NSMutableDictionary *dict = [NSMutableDictionary new];
+  [dict setObject:a forKey:a];
+  [dict setObject:b forKey:b];
+  [dict removeObjectsForKeys:[NSArray arrayWithObjects:a, c, nil]];
+  if ([dict count] != 1 || [dict objectForKey:b] != b)
+    res = -1;
+  [dict release];
+
+  NSFileManager *fm = [NSFileManager defaultManager];
+  if (res == 0 &&
+      (![fm isExecutableFileAtPath:NSHomeDirectory()] ||
+       [fm isExecutableFileAtPath:[NSString
+                                      stringWithUTF8String:"/does/not/exist"]]))
+    res = -2;
+
+  NSTimeZone *tz = [NSTimeZone timeZoneForSecondsFromGMT:5400];
+  if (res == 0 &&
+      ([tz secondsFromGMT] != 5400 ||
+       ![[tz name] isEqualToString:[NSString stringWithUTF8String:"GMT+0130"]]))
+    res = -3;
+
+  if (res == 0 && strcmp(sel_getName(@selector(count)), "count") != 0)
+    res = -4;
+
+  // A cancelled request never runs.
+  int ran = -1;
+  pthread_t p;
+  if (res == 0 &&
+      (pthread_create(&p, NULL, cancel_perform_pthread, &ran) != 0 ||
+       pthread_join(p, NULL) != 0 || ran != 0))
+    res = -5;
+
+  // Waiting times out without a signal, and wakes with one.
+  g_condition = [NSCondition new];
+  [g_condition lock];
+  if (res == 0 &&
+      [g_condition waitUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.05]])
+    res = -6;
+  g_condition_flag = 0;
+  if (res == 0 && pthread_create(&p, NULL, condition_signal_pthread, NULL) != 0)
+    res = -7;
+  while (res == 0 && !g_condition_flag)
+    [g_condition wait];
+  [g_condition unlock];
+  if (res == 0)
+    pthread_join(p, NULL);
+  [g_condition release];
+
+  [pool drain];
   return res;
 }
 
@@ -8707,6 +8790,7 @@ struct {
     FUNC_DEF(test_NSObject_self),
     FUNC_DEF(test_class_copyPropertyList),
     FUNC_DEF(test_statfs),
+    FUNC_DEF(test_Foundation_small_gaps),
     FUNC_DEF(test_NSAssertionHandler),
     FUNC_DEF(test_NSError),
     FUNC_DEF(test_NSURLConnection_offline),
