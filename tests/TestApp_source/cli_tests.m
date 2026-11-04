@@ -7,6 +7,7 @@
 // This file contains the command-line automated tests. tests/integration.rs
 // runs these automatically.
 
+#include <CoreFoundation/CFArray.h>
 #include <CoreFoundation/CFBase.h>
 #include <CoreFoundation/CFBundle.h>
 #include <CoreFoundation/CFDictionary.h>
@@ -783,6 +784,35 @@ int test_Foundation_constants() {
                    [size unsignedLongLongValue] < [free unsignedLongLongValue]))
     res = -3;
   [pool drain];
+  return res;
+}
+
+static CFComparisonResult compare_ints(const void *a, const void *b,
+                                       void *context) {
+  long x = (long)a, y = (long)b;
+  return x < y ? kCFCompareLessThan
+               : (x > y ? kCFCompareGreaterThan : kCFCompareEqualTo);
+}
+
+int test_CFArray_sort_and_copy() {
+  // With NULL callbacks, the values needn't be objects.
+  CFMutableArrayRef array = CFArrayCreateMutable(NULL, 0, NULL);
+  long values[] = {3, 1, 2, 1};
+  for (int i = 0; i < 4; i++)
+    CFArrayAppendValue(array, (const void *)values[i]);
+  // Only the last three are sorted.
+  CFArraySortValues(array, CFRangeMake(1, 3), compare_ints, NULL);
+  long expected[] = {3, 1, 1, 2};
+  int res = 0;
+  for (int i = 0; i < 4; i++)
+    if ((long)CFArrayGetValueAtIndex(array, i) != expected[i])
+      res = -1;
+  CFMutableArrayRef copy = CFArrayCreateMutableCopy(NULL, 0, array);
+  if (res == 0 && (CFArrayGetCount(copy) != 4 ||
+                   (long)CFArrayGetValueAtIndex(copy, 3) != 2))
+    res = -2;
+  CFRelease(copy);
+  CFRelease(array);
   return res;
 }
 
@@ -8815,6 +8845,7 @@ struct {
     FUNC_DEF(test_statfs),
     FUNC_DEF(test_Foundation_small_gaps),
     FUNC_DEF(test_Foundation_constants),
+    FUNC_DEF(test_CFArray_sort_and_copy),
     FUNC_DEF(test_NSAssertionHandler),
     FUNC_DEF(test_NSError),
     FUNC_DEF(test_NSURLConnection_offline),

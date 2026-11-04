@@ -823,6 +823,10 @@ pub const CLASSES: ClassExports = objc_classes! {
     env.objc.borrow_mut::<ArrayHostObject>(this).array.pop().unwrap();
 }
 
+- (())replaceObjectAtIndex:(NSUInteger)index withObject:(id)obj {
+    env.objc.borrow_mut::<ArrayHostObject>(this).array[index as usize] = obj;
+}
+
 @end
 
 };
