@@ -147,6 +147,7 @@ typedef struct {
 - (BOOL)containsObject:(ObjectType)anObject;
 - (BOOL)isEqualToArray:(NSArray *)otherArray;
 - (id)objectEnumerator;
+- (NSArray *)sortedArrayUsingDescriptors:(NSArray *)descriptors;
 @end
 
 @interface NSMutableArray<ObjectType> : NSArray
@@ -225,6 +226,16 @@ typedef enum {
 - (NSUInteger)length;
 - (unsigned short)characterAtIndex:(NSUInteger)index;
 - (NSArray *)componentsSeparatedByString:(NSString *)separator;
+@end
+
+@interface NSSortDescriptor : NSObject
++ (instancetype)sortDescriptorWithKey:(NSString *)key
+                            ascending:(BOOL)ascending
+                             selector:(SEL)selector;
+- (instancetype)initWithKey:(NSString *)key
+                  ascending:(BOOL)ascending
+                   selector:(SEL)selector;
+- (SEL)selector;
 @end
 @interface NSMutableString : NSString
 - (void)deleteCharactersInRange:(NSRange)range;

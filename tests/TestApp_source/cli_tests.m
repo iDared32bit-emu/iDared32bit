@@ -4727,6 +4727,41 @@ int test_NSDictionary_subclass() {
 }
 @end
 
+int test_NSSortDescriptor_selector() {
+  NSAutoreleasePool *pool = [NSAutoreleasePool new];
+  NSString *a = [NSString stringWithUTF8String:"a"];
+  NSString *b = [NSString stringWithUTF8String:"b"];
+  NSString *c = [NSString stringWithUTF8String:"C"];
+  NSString *key = [NSString stringWithUTF8String:"self"];
+  SEL sel = NSSelectorFromString(
+      [NSString stringWithUTF8String:"caseInsensitiveCompare:"]);
+  NSArray *array = [NSArray arrayWithObjects:b, a, c, nil];
+
+  // compare: would put "C" first.
+  NSSortDescriptor *descriptor = [NSSortDescriptor sortDescriptorWithKey:key
+                                                               ascending:YES
+                                                                selector:sel];
+  NSArray *sorted = [array
+      sortedArrayUsingDescriptors:[NSArray arrayWithObjects:descriptor, nil]];
+  int res = 0;
+  if ([descriptor selector] != sel ||
+      ![sorted isEqualToArray:[NSArray arrayWithObjects:a, b, c, nil]])
+    res = -1;
+
+  // Descending, made with init.
+  descriptor = [[NSSortDescriptor alloc] initWithKey:key
+                                           ascending:NO
+                                            selector:sel];
+  sorted = [array
+      sortedArrayUsingDescriptors:[NSArray arrayWithObjects:descriptor, nil]];
+  if (res == 0 &&
+      ![sorted isEqualToArray:[NSArray arrayWithObjects:c, b, a, nil]])
+    res = -2;
+  [descriptor release];
+  [pool drain];
+  return res;
+}
+
 int test_NSMutableSet_addObjectsFromArray() {
   NSAutoreleasePool *pool = [NSAutoreleasePool new];
   NSString *a = [NSString stringWithUTF8String:"a"];
@@ -8665,6 +8700,7 @@ struct {
     FUNC_DEF(test_NSRunLoop_runMode),
     FUNC_DEF(test_NSCalendar),
     FUNC_DEF(test_NSDictionary_subclass),
+    FUNC_DEF(test_NSSortDescriptor_selector),
     FUNC_DEF(test_NSMutableSet_addObjectsFromArray),
     FUNC_DEF(test_class_cluster_subclasses),
     FUNC_DEF(test_NSDictionary_values),
