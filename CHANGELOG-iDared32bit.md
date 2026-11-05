@@ -10,6 +10,7 @@ Compatibility:
 - Fixed sideways, cut-off graphics in some landscape games.
 - Fixed some games not closing when quit.
 - Fixed crashes in some games when drawing.
+- Fixed crashes in some games when saving.
 
 ## v1.5.1 (2026-11-04)
 
