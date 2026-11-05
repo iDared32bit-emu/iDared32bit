@@ -1902,6 +1902,27 @@ int test_strtol() {
   return 0;
 }
 
+int test_strtoll() {
+  const char *p = "8589934592 -8589934592 99999999999999999999 7x";
+  long long res[] = {8589934592LL, -8589934592LL, 9223372036854775807LL, 7};
+  int count = sizeof(res) / sizeof(long long);
+  for (int i = 0; i < count; i++) {
+    char *endp = NULL;
+    long long l = strtoll(p, &endp, 10);
+    if (p == endp || res[i] != l) {
+      return -(i + 1);
+    }
+    p = endp;
+  }
+  if (*p != 'x') {
+    return -(count + 1);
+  }
+  if (strtoll("0x1ffffffff", NULL, 0) != 0x1ffffffffLL) {
+    return -(count + 2);
+  }
+  return 0;
+}
+
 // This is a simplified version of test_strtol()
 int test_wcstol() {
   const wchar_t *subjects[] = {L"10", L"200000000000000000000000000000",
@@ -9040,6 +9061,7 @@ struct {
     FUNC_DEF(test_setlocale),
     FUNC_DEF(test_strtoul),
     FUNC_DEF(test_strtol),
+    FUNC_DEF(test_strtoll),
     FUNC_DEF(test_wcstol),
     FUNC_DEF(test_dirent),
     FUNC_DEF(test_scandir),

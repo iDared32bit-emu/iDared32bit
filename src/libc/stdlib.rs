@@ -497,6 +497,37 @@ fn strtol(env: &mut Environment, str: ConstPtr<u8>, endptr: MutPtr<MutPtr<u8>>, 
     }
 }
 
+fn strtoll(env: &mut Environment, str: ConstPtr<u8>, endptr: MutPtr<MutPtr<u8>>, base: i32) -> i64 {
+    // TODO: handle errno properly
+    set_errno(env, 0);
+
+    let parse_res = str_to_int_inner_generic(
+        env,
+        |env, s, idx| Ok(env.mem.read(s + idx)),
+        |_, _, _| (), // could be ignored
+        str.cast_mut(),
+        0, // starting offset
+        base.try_into().unwrap(),
+        u32::MAX, // max_length
+        |s, base| i64::from_str_radix(s, base).unwrap_or(i64::MAX),
+        |num| num.checked_mul(-1).unwrap_or(i64::MIN),
+    );
+    match parse_res {
+        Ok((res, len)) => {
+            if !endptr.is_null() {
+                env.mem.write(endptr, (str + len).cast_mut());
+            }
+            res
+        }
+        Err(_) => {
+            if !endptr.is_null() {
+                env.mem.write(endptr, str.cast_mut());
+            }
+            0
+        }
+    }
+}
+
 fn wcstol(
     env: &mut Environment,
     nptr: ConstPtr<wchar_t>,
@@ -692,6 +723,7 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(wcstoul(_, _, _)),
     export_c_func!(strtoull(_, _, _)),
     export_c_func!(strtol(_, _, _)),
+    export_c_func!(strtoll(_, _, _)),
     export_c_func!(wcstol(_, _, _)),
     export_c_func!(realpath(_, _)),
     export_c_func_aliased!("realpath$DARWIN_EXTSN", realpath(_, _)),
