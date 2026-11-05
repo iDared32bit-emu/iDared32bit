@@ -35,6 +35,7 @@ Compatibility:
 - Fade transitions between screens now work, fixing a crash in some games.
 - Navigation bars in games are now drawn, with working buttons, so some games' settings and store screens no longer crash.
 - Segmented controls in games are now drawn and can be tapped, fixing a crash in some games' settings screens.
+- Various small fixes.
 
 ## v1.5.0 (2026-10-23)
 
