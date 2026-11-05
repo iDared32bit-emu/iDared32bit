@@ -8,6 +8,7 @@ Compatibility:
 
 - Fixed a crash when starting some games that use networking.
 - Fixed sideways, cut-off graphics in some landscape games.
+- Fixed some games not closing when quit.
 
 ## v1.5.1 (2026-11-04)
 
