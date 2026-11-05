@@ -6840,6 +6840,66 @@ int test_NSString_stringByReplacingOccurrencesOfString_options_range() {
   return 0;
 }
 
+// Each clip rect is symmetric top to bottom, as in test_CGContext_paths.
+int test_CGContext_clip() {
+  uint8_t pixels[8 * 8 * 4];
+  CGColorSpaceRef rgb = CGColorSpaceCreateDeviceRGB();
+  CGContextRef c = CGBitmapContextCreate(pixels, 8, 8, 8, 8 * 4, rgb,
+                                         kCGImageAlphaPremultipliedLast);
+  CGRect all = CGRectMake(0, 0, 8, 8);
+  int res = 0;
+#define CLIP_RED(x, y) (pixels[((y) * 8 + (x)) * 4] == 255)
+#define CLIP_EMPTY(x, y) (pixels[((y) * 8 + (x)) * 4 + 3] == 0)
+
+  // One rect, undone by restoring the graphics state.
+  memset(pixels, 0, sizeof(pixels));
+  CGContextSetRGBFillColor(c, 1, 0, 0, 1);
+  CGContextSaveGState(c);
+  CGContextClipToRect(c, CGRectMake(2, 2, 4, 4));
+  CGContextFillRect(c, all);
+  if (!CLIP_RED(3, 3) || !CLIP_EMPTY(0, 0) || !CLIP_EMPTY(1, 3)) {
+    res = -1;
+    goto done;
+  }
+  CGContextRestoreGState(c);
+  CGContextFillRect(c, all);
+  if (!CLIP_RED(0, 0)) {
+    res = -2;
+    goto done;
+  }
+
+  // Several rects, with a gap between them.
+  memset(pixels, 0, sizeof(pixels));
+  CGContextSaveGState(c);
+  CGRect rects[2] = {CGRectMake(0, 0, 2, 8), CGRectMake(6, 0, 2, 8)};
+  CGContextClipToRects(c, rects, 2);
+  CGContextFillRect(c, all);
+  if (!CLIP_RED(1, 4) || !CLIP_RED(6, 4) || !CLIP_EMPTY(4, 4)) {
+    res = -3;
+    goto done;
+  }
+  CGContextRestoreGState(c);
+
+  // Clipping again narrows the clip.
+  memset(pixels, 0, sizeof(pixels));
+  CGContextSaveGState(c);
+  CGContextClipToRect(c, CGRectMake(0, 0, 4, 8));
+  CGContextClipToRect(c, CGRectMake(2, 0, 6, 8));
+  CGContextFillRect(c, all);
+  if (!CLIP_RED(3, 4) || !CLIP_EMPTY(1, 4) || !CLIP_EMPTY(5, 4)) {
+    res = -4;
+    goto done;
+  }
+  CGContextRestoreGState(c);
+
+done:
+#undef CLIP_RED
+#undef CLIP_EMPTY
+  CGContextRelease(c);
+  CGColorSpaceRelease(rgb);
+  return res;
+}
+
 // Each shape is symmetric top to bottom, so the result doesn't depend on
 // which way up the bitmap's rows are.
 int test_CGContext_paths() {
@@ -9012,6 +9072,7 @@ struct {
     FUNC_DEF(test_CFURLHasDirectoryPath),
     FUNC_DEF(test_CGImage_JPEG),
     FUNC_DEF(test_CGContext_paths),
+    FUNC_DEF(test_CGContext_clip),
     FUNC_DEF(test_NSMutableString_deleteCharactersInRange),
     FUNC_DEF(test_NSMutableString_insertString_atIndex),
     FUNC_DEF(test_NSString_stringByReplacingOccurrencesOfString),

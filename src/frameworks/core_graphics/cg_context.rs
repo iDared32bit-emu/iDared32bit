@@ -15,7 +15,6 @@ use super::cg_color_space::{
     CGColorSpaceRef,
 };
 use super::cg_font::{CGFontHostObject, CGFontRef, CGFontRelease, CGFontRetain, CGGlyph};
-use super::cg_geometry::CGPointZero;
 use super::cg_gradient::CGGradientRef;
 use super::cg_image::CGImageRef;
 use super::cg_path::{kCGLineCapButt, kCGLineCapRound, kCGLineCapSquare, CGLineCap};
@@ -26,6 +25,7 @@ use crate::frameworks::uikit;
 use crate::mem::{ConstPtr, ConstVoidPtr, GuestUSize};
 use crate::objc::{objc_classes, ClassExports, HostObject};
 use crate::Environment;
+use std::rc::Rc;
 use tiny_skia::PathBuilder;
 
 type CGInterpolationQuality = i32;
@@ -135,6 +135,7 @@ type ContextState = (
     (CGFloat, CGFloat, CGFloat, CGFloat), // RGB stroke color
     CGColorSpaceModel,                    // fill color space
     CGColorSpaceModel,                    // stroke color space
+    Option<Rc<tiny_skia::Mask>>,          // clip
 );
 
 pub(super) struct CGContextHostObject {
@@ -156,6 +157,8 @@ pub(super) struct CGContextHostObject {
     /// CGContextSetStrokeColor take components in.
     pub(super) fill_color_space: CGColorSpaceModel,
     pub(super) stroke_color_space: CGColorSpaceModel,
+    /// What drawing is limited to, in device space, if anything.
+    pub(super) clip: Option<Rc<tiny_skia::Mask>>,
     /// The current path, in device space: the transform is applied as points
     /// are added, as on iOS. It isn't part of the graphics state.
     pub(super) path: PathBuilder,
@@ -368,19 +371,56 @@ pub fn CGContextFillEllipseInRect(env: &mut Environment, context: CGContextRef, 
 }
 
 fn CGContextClipToRect(env: &mut Environment, context: CGContextRef, rect: CGRect) {
-    if rect.origin == CGPointZero
-        && rect.size.height == CGBitmapContextGetHeight(env, context) as f32
-        && rect.size.width == CGBitmapContextGetWidth(env, context) as f32
-    {
-        assert!(env
-            .objc
-            .borrow_mut::<CGContextHostObject>(context)
-            .transform
-            .is_identity());
-        // All good, clipping is not needed!
-        return;
+    clip_to_rects(env, context, &[rect]);
+}
+
+fn CGContextClipToRects(
+    env: &mut Environment,
+    context: CGContextRef,
+    rects: ConstPtr<CGRect>,
+    count: GuestUSize,
+) {
+    let rects: Vec<CGRect> = (0..count).map(|i| env.mem.read(rects + i)).collect();
+    clip_to_rects(env, context, &rects);
+}
+
+/// Limits drawing to where it's already allowed and inside one of the rects.
+fn clip_to_rects(env: &mut Environment, context: CGContextRef, rects: &[CGRect]) {
+    log_dbg!("Clipping {:?} to {:?}", context, rects);
+    let width = CGBitmapContextGetWidth(env, context);
+    let height = CGBitmapContextGetHeight(env, context);
+    let host_obj = env.objc.borrow_mut::<CGContextHostObject>(context);
+    let mut builder = PathBuilder::new();
+    for rect in rects {
+        if let Some(rect) = tiny_skia::Rect::from_xywh(
+            rect.origin.x,
+            rect.origin.y,
+            rect.size.width,
+            rect.size.height,
+        ) {
+            builder.push_rect(rect);
+        }
     }
-    todo!();
+    let transform = cg_bitmap_context::to_skia_transform(host_obj.transform);
+    let mut mask = match host_obj.clip.take() {
+        Some(clip) => Rc::unwrap_or_clone(clip),
+        None => {
+            // An empty bitmap, which nothing can be drawn in anyway.
+            let Some(mut mask) = tiny_skia::Mask::new(width, height) else {
+                return;
+            };
+            mask.data_mut().fill(255);
+            mask
+        }
+    };
+    match builder.finish() {
+        Some(path) => {
+            mask.intersect_path(&path, tiny_skia::FillRule::Winding, true, transform);
+        }
+        // Nothing (e.g. only empty rects): nothing can be drawn.
+        None => mask.data_mut().fill(0),
+    }
+    host_obj.clip = Some(Rc::new(mask));
 }
 
 pub fn CGContextConcatCTM(
@@ -469,6 +509,7 @@ fn CGContextSaveGState(env: &mut Environment, context: CGContextRef) {
         host_obj.rgb_stroke_color,
         host_obj.fill_color_space,
         host_obj.stroke_color_space,
+        host_obj.clip.clone(),
     ));
     CGFontRetain(env, env.objc.borrow::<CGContextHostObject>(context).font);
 }
@@ -491,6 +532,7 @@ fn CGContextRestoreGState(env: &mut Environment, context: CGContextRef) {
     host_obj.rgb_stroke_color = state.6;
     host_obj.fill_color_space = state.7;
     host_obj.stroke_color_space = state.8;
+    host_obj.clip = state.9;
 }
 
 fn CGContextSetInterpolationQuality(
@@ -903,6 +945,7 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(CGContextFillRect(_, _)),
     export_c_func!(CGContextClearRect(_, _)),
     export_c_func!(CGContextClipToRect(_, _)),
+    export_c_func!(CGContextClipToRects(_, _, _)),
     export_c_func!(CGContextConcatCTM(_, _)),
     export_c_func!(CGContextGetCTM(_)),
     export_c_func!(CGContextGetUserSpaceToDeviceSpaceTransform(_)),

@@ -31,6 +31,7 @@ use crate::image::{gamma_decode, gamma_encode, Image};
 use crate::mem::{GuestUSize, Mem, MutVoidPtr, Ptr};
 use crate::objc::ObjC;
 use crate::Environment;
+use std::rc::Rc;
 
 #[derive(Copy, Clone)]
 pub(super) struct CGBitmapContextData {
@@ -106,6 +107,7 @@ pub fn CGBitmapContextCreate(
         fill_color_space: kCGColorSpaceModelMonochrome,
         stroke_color_space: kCGColorSpaceModelMonochrome,
         path: tiny_skia::PathBuilder::new(),
+        clip: None,
     };
     let isa = env
         .objc
@@ -499,6 +501,7 @@ pub struct CGBitmapContextDrawer<'a> {
     rgb_fill_color: (CGFloat, CGFloat, CGFloat, CGFloat),
     blend_mode: CGBlendMode,
     transform: CGAffineTransform,
+    clip: Option<Rc<tiny_skia::Mask>>,
     pixels: &'a mut [u8],
 }
 impl CGBitmapContextDrawer<'_> {
@@ -512,6 +515,7 @@ impl CGBitmapContextDrawer<'_> {
             rgb_fill_color,
             transform,
             blend_mode,
+            ref clip,
             ..
         } = objc.borrow(context);
 
@@ -522,6 +526,7 @@ impl CGBitmapContextDrawer<'_> {
             rgb_fill_color,
             blend_mode,
             transform,
+            clip: clip.clone(),
             pixels,
         }
     }
@@ -576,19 +581,26 @@ impl CGBitmapContextDrawer<'_> {
         color: (CGFloat, CGFloat, CGFloat, CGFloat),
     ) {
         let width = mask.width() as usize;
-        let premultiplied = self.is_premultiplied();
         for (i, &coverage) in mask.data().iter().enumerate() {
             if coverage == 0 {
                 continue;
             }
-            let c = coverage as f32 / 255.0;
-            let color = if premultiplied {
-                (color.0 * c, color.1 * c, color.2 * c, color.3 * c)
-            } else {
-                (color.0, color.1, color.2, color.3 * c)
-            };
+            let color = self.with_coverage(color, coverage);
             let coords = ((i % width) as i32, (i / width) as i32);
             self.put_pixel(coords, color, /* blend: */ true);
+        }
+    }
+    /// Makes a color partly transparent, for a partly covered pixel.
+    fn with_coverage(
+        &self,
+        color: (CGFloat, CGFloat, CGFloat, CGFloat),
+        coverage: u8,
+    ) -> (CGFloat, CGFloat, CGFloat, CGFloat) {
+        let c = coverage as f32 / 255.0;
+        if self.is_premultiplied() {
+            (color.0 * c, color.1 * c, color.2 * c, color.3 * c)
+        } else {
+            (color.0, color.1, color.2, color.3 * c)
         }
     }
     /// Set the pixel at `coords` to `color`. `color` must be linear RGB, not
@@ -600,6 +612,21 @@ impl CGBitmapContextDrawer<'_> {
         color: (CGFloat, CGFloat, CGFloat, CGFloat),
         blend: bool,
     ) {
+        let mut color = color;
+        if let Some(clip) = &self.clip {
+            let (x, y) = coords;
+            if x < 0 || y < 0 || x >= clip.width() as i32 || y >= clip.height() as i32 {
+                return;
+            }
+            let coverage = clip.data()[y as usize * clip.width() as usize + x as usize];
+            // Without blending, a partly covered pixel can't be partly set.
+            if coverage == 0 || (!blend && coverage < 128) {
+                return;
+            }
+            if blend {
+                color = self.with_coverage(color, coverage);
+            }
+        }
         put_pixel(
             &self.bitmap_info,
             self.pixels,
@@ -680,6 +707,7 @@ fn test_iter_transformed_pixels() {
             rgb_fill_color: (0.0, 0.0, 0.0, 0.0),
             blend_mode: kCGBlendModeNormal,
             transform,
+            clip: None,
             pixels: &mut [],
         }
     }
