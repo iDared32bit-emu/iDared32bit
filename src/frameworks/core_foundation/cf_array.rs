@@ -43,8 +43,9 @@ fn CFArrayCreateMutableCopy(
     assert!(allocator == kCFAllocatorDefault || env.mem.read(allocator).is_system_default()); // unimplemented
     let count = CFArrayGetCount(env, array);
     assert!(capacity == 0 || capacity >= count); // TODO: fixed capacity support
-                                                 // The copy keeps the original's callbacks, so values that aren't objects
-                                                 // (an array with NULL callbacks) are copied without being retained.
+
+    // The copy keeps the original's callbacks, so values that aren't objects
+    // (an array with NULL callbacks) are copied without being retained.
     let non_retaining: Class = msg_class![env; _touchHLE_NSArray_non_retaining class];
     let mutable_non_retaining: Class =
         msg_class![env; _touchHLE_NSMutableArray_non_retaining class];
