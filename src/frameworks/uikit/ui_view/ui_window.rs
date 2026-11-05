@@ -16,7 +16,7 @@ use crate::frameworks::core_graphics::{CGFloat, CGPoint, CGRect};
 use crate::frameworks::foundation::ns_string;
 use crate::frameworks::uikit::ui_application::{
     UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight,
-    UIInterfaceOrientationPortraitUpsideDown,
+    UIInterfaceOrientationPortrait, UIInterfaceOrientationPortraitUpsideDown,
 };
 use crate::frameworks::uikit::ui_device::{
     UIDeviceOrientationLandscapeLeft, UIDeviceOrientationLandscapeRight,
@@ -201,8 +201,31 @@ pub const CLASSES: ClassExports = objc_classes! {
         crate::window::DeviceOrientation::PortraitUpsideDown => Some(UIDeviceOrientationPortraitUpsideDown),
         crate::window::DeviceOrientation::LandscapeLeft => Some(UIDeviceOrientationLandscapeLeft),
         crate::window::DeviceOrientation::LandscapeRight => Some(UIDeviceOrientationLandscapeRight),
-        // Portrait is the default so we don't do anything here.
-        crate::window::DeviceOrientation::Portrait => None,
+        // Portrait is the default, unless the view controller doesn't
+        // support it: then, as on iOS, the status bar and the view turn to
+        // the first other orientation it supports.
+        crate::window::DeviceOrientation::Portrait => {
+            let mut supported = None;
+            for orientation in [
+                UIInterfaceOrientationPortrait,
+                UIInterfaceOrientationLandscapeRight,
+                UIInterfaceOrientationLandscapeLeft,
+                UIInterfaceOrientationPortraitUpsideDown,
+            ] {
+                if msg![env; vc shouldAutorotateToInterfaceOrientation:orientation] {
+                    supported = Some(orientation);
+                    break;
+                }
+            }
+            match supported {
+                Some(UIInterfaceOrientationPortrait) | None => None,
+                Some(orientation) => {
+                    let app: id = msg_class![env; UIApplication sharedApplication];
+                    () = msg![env; app setStatusBarOrientation:orientation];
+                    Some(orientation)
+                }
+            }
+        }
     } {
         // (UIInterfaceOrientation and UIDeviceOrientation are compatible enums,
         //  here we use whichever is clearer contextually.)
