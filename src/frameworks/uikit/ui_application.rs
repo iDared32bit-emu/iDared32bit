@@ -478,6 +478,14 @@ pub(super) fn UIApplicationMain(
 
 /// Tell the app it's about to quit and then exit.
 pub(super) fn exit(env: &mut Environment) {
+    // iOS gives an app about five seconds to finish quitting before it kills
+    // it. Some games never finish, e.g. waiting on a thread that missed its
+    // message to stop.
+    std::thread::spawn(|| {
+        std::thread::sleep(std::time::Duration::from_secs(5));
+        log!("The app didn't finish quitting within 5 seconds, so it was stopped, as on iOS.");
+        std::process::exit(0);
+    });
     notify_will_terminate(env);
     std::process::exit(0);
 }
