@@ -36,6 +36,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/mount.h>
+#include <sys/socket.h>
 #include <sys/sysctl.h>
 #include <sys/time.h>
 #include <sys/types.h>
@@ -1898,6 +1899,27 @@ int test_strtol() {
     if (res2[i] != l) {
       return -(count + 2 + i + 1);
     }
+  }
+  return 0;
+}
+
+int test_getpeername() {
+  struct sockaddr_in addr;
+  socklen_t len = sizeof(addr);
+  if (getpeername(1000, (struct sockaddr *)&addr, &len) != -1 ||
+      errno != EBADF) {
+    return -1;
+  }
+  // A UDP socket with no connect() has no peer.
+  int s = socket(AF_INET, SOCK_DGRAM, 0);
+  if (s < 0) {
+    return -2;
+  }
+  int res = getpeername(s, (struct sockaddr *)&addr, &len);
+  int err = errno;
+  close(s);
+  if (res != -1 || err != ENOTCONN) {
+    return -3;
   }
   return 0;
 }
@@ -9062,6 +9084,7 @@ struct {
     FUNC_DEF(test_strtoul),
     FUNC_DEF(test_strtol),
     FUNC_DEF(test_strtoll),
+    FUNC_DEF(test_getpeername),
     FUNC_DEF(test_wcstol),
     FUNC_DEF(test_dirent),
     FUNC_DEF(test_scandir),

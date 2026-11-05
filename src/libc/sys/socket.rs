@@ -30,7 +30,7 @@
 use crate::dyld::{export_c_func, FunctionExports};
 use crate::libc::errno::{
     set_errno, EAGAIN, EBADF, ECONNREFUSED, ECONNRESET, EHOSTUNREACH, EINVAL, ENETUNREACH,
-    ETIMEDOUT,
+    ENOTCONN, ETIMEDOUT,
 };
 use crate::libc::posix_io::{
     close, find_or_create_socket, is_nonblocking, is_socket, pipe_is_ready, FileDescriptor,
@@ -401,6 +401,45 @@ fn getsockname(
     };
     let local_guest_addr = sockaddr::from_sockaddr_v4(&SocketAddr::V4(local_addr));
     write_sockaddr(env, address, address_len, local_guest_addr);
+
+    0 // Success
+}
+
+fn getpeername(
+    env: &mut Environment,
+    socket: i32,
+    address: MutPtr<sockaddr>,
+    address_len: MutPtr<socklen_t>,
+) -> i32 {
+    set_errno(env, 0);
+
+    let Some(socket_host_object) = State::get(env).sockets.get(&socket) else {
+        set_errno(env, EBADF);
+        return -1;
+    };
+    // Only a connected socket has a peer: not a listener, and not a UDP
+    // socket that connect() wasn't called for.
+    let peer_addr = if let Some(tcp_stream) = &socket_host_object.tcp_stream {
+        Some(tcp_stream.peer_addr())
+    } else {
+        socket_host_object
+            .udp_socket
+            .as_ref()
+            .map(|udp_socket| udp_socket.peer_addr())
+    };
+    let peer_addr = match peer_addr {
+        Some(Ok(peer_addr @ SocketAddr::V4(_))) => peer_addr,
+        Some(Ok(SocketAddr::V6(_))) => unreachable!(), // Only IPv4 is supported.
+        Some(Err(error)) if error.kind() != io::ErrorKind::NotConnected => {
+            panic!("getpeername: socket {socket} encountered IO error: {error}")
+        }
+        None | Some(Err(_)) => {
+            set_errno(env, ENOTCONN);
+            return -1;
+        }
+    };
+    let peer_guest_addr = sockaddr::from_sockaddr_v4(&peer_addr);
+    write_sockaddr(env, address, address_len, peer_guest_addr);
 
     0 // Success
 }
@@ -1291,6 +1330,7 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(getsockopt(_, _, _, _, _)),
     export_c_func!(setsockopt(_, _, _, _, _)),
     export_c_func!(getsockname(_, _, _)),
+    export_c_func!(getpeername(_, _, _)),
     export_c_func!(bind(_, _, _)),
     export_c_func!(listen(_, _)),
     export_c_func!(connect(_, _, _)),
