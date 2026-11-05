@@ -9,7 +9,7 @@ use crate::abi::{CallFromHost, GuestFunction};
 use crate::dyld::{export_c_func, export_c_func_aliased, FunctionExports};
 use crate::fs::{resolve_path, GuestPath};
 use crate::libc::clocale::{setlocale, LC_CTYPE};
-use crate::libc::errno::{set_errno, EEXIST, EINVAL, ENOENT, ENOTDIR};
+use crate::libc::errno::{set_errno, EEXIST, EINVAL, ENAMETOOLONG, ENOENT, ENOTDIR};
 use crate::libc::string::strlen;
 use crate::libc::wchar::wchar_t;
 use crate::mem::{ConstPtr, ConstVoidPtr, GuestUSize, MutPtr, MutVoidPtr, Ptr, SafeRead};
@@ -25,6 +25,7 @@ pub struct State {
     random: u32,
     arc4random: u32,
     fcvt_buf: Option<MutPtr<u8>>,
+    basename_buf: Option<MutPtr<u8>>,
 }
 
 // Sizes of zero are implementation-defined. macOS will happily give you back
@@ -738,6 +739,42 @@ fn mktemp(env: &mut Environment, template: MutPtr<u8>) -> MutPtr<u8> {
     Ptr::null()
 }
 
+/// `libgen.h`: the last part of a path. As on iOS, it's in a buffer that the
+/// next call overwrites.
+fn basename(env: &mut Environment, path: ConstPtr<u8>) -> MutPtr<u8> {
+    const MAXPATHLEN: GuestUSize = 1024;
+    let path = if path.is_null() {
+        &b""[..]
+    } else {
+        env.mem.cstr_at(path)
+    };
+    let trimmed = &path[..path.iter().rposition(|&c| c != b'/').map_or(0, |i| i + 1)];
+    let result = if path.is_empty() {
+        b".".to_vec()
+    } else if trimmed.is_empty() {
+        b"/".to_vec()
+    } else {
+        let start = trimmed
+            .iter()
+            .rposition(|&c| c == b'/')
+            .map_or(0, |i| i + 1);
+        trimmed[start..].to_vec()
+    };
+    if result.len() as GuestUSize >= MAXPATHLEN {
+        set_errno(env, ENAMETOOLONG);
+        return Ptr::null();
+    }
+    let buf = *env
+        .libc_state
+        .stdlib
+        .basename_buf
+        .get_or_insert_with(|| env.mem.alloc(MAXPATHLEN).cast());
+    let len = result.len() as GuestUSize;
+    env.mem.bytes_at_mut(buf, len).copy_from_slice(&result);
+    env.mem.write(buf + len, b'\0');
+    buf
+}
+
 pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(malloc(_)),
     export_c_func!(malloc_size(_)),
@@ -777,6 +814,7 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(system(_)),
     export_c_func!(fcvt(_, _, _, _)),
     export_c_func!(mktemp(_)),
+    export_c_func!(basename(_)),
 ];
 
 /// A simple wrapper around [atof_inner_generic] for the case of C string.

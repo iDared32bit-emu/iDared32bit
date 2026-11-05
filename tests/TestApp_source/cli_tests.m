@@ -21,6 +21,7 @@
 #include <fenv.h>
 #include <fnmatch.h>
 #include <glob.h>
+#include <libgen.h>
 #include <locale.h>
 #include <mach/kern_return.h>
 #include <mach/thread_info.h>
@@ -1925,6 +1926,24 @@ int test_mktemp() {
   char taken[] = "/usr";
   if (mktemp(taken) != NULL || errno != EEXIST) {
     return -4;
+  }
+  return 0;
+}
+
+int test_basename() {
+  const char *cases[][2] = {
+      {"/a/b/c", "c"}, {"/a/b/", "b"}, {"c", "c"},
+      {"/", "/"},      {"///", "/"},   {"", "."},
+  };
+  for (int i = 0; i < (int)(sizeof(cases) / sizeof(cases[0])); i++) {
+    char path[16];
+    strcpy(path, cases[i][0]);
+    if (strcmp(basename(path), cases[i][1]) != 0) {
+      return -(i + 1);
+    }
+  }
+  if (strcmp(basename(NULL), ".") != 0) {
+    return -10;
   }
   return 0;
 }
@@ -9111,6 +9130,7 @@ struct {
     FUNC_DEF(test_strtol),
     FUNC_DEF(test_strtoll),
     FUNC_DEF(test_mktemp),
+    FUNC_DEF(test_basename),
     FUNC_DEF(test_getpeername),
     FUNC_DEF(test_wcstol),
     FUNC_DEF(test_dirent),
