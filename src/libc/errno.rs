@@ -126,6 +126,7 @@ fn strerror(env: &mut Environment, err_num: i32) -> ConstPtr<u8> {
             EISDIR => "Is a directory",
             EINVAL => "Invalid argument",
             ESPIPE => "Illegal seek",
+            EPIPE => "Broken pipe",
             EROFS => "Read-only file system",
             EAGAIN => "Resource temporarily unavailable",
             EPROTONOSUPPORT => "Protocol not supported",
