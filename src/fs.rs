@@ -29,6 +29,7 @@ mod bundle;
 pub use bundle::BundleData;
 
 use crate::fs::bundle::{IpaFile, IpaFileRef};
+use crate::libc::posix_io::pipe::PipeEnd;
 use crate::paths;
 use std::collections::HashMap;
 use std::fs;
@@ -381,6 +382,7 @@ pub enum GuestFile {
     IpaBundleFile(IpaFile),
     ResourceFile(paths::ResourceFile),
     Socket,
+    Pipe(PipeEnd),
 }
 
 impl GuestFile {
@@ -412,6 +414,7 @@ impl GuestFile {
                 std::io::ErrorKind::Unsupported,
                 "Sync operation not supported on socket",
             )),
+            GuestFile::Pipe(_) => Ok(()),
         }
     }
     pub fn set_len(&self, len: u64) -> std::io::Result<()> {
@@ -439,7 +442,7 @@ impl GuestFile {
     pub fn is_seekable(&self) -> bool {
         // Due to legacy directory iteration support, directories are seekable
         // https://stackoverflow.com/questions/65911066/what-does-lseek-mean-for-a-directory-file-descriptor
-        !matches!(self, GuestFile::Socket)
+        !matches!(self, GuestFile::Socket | GuestFile::Pipe(_))
     }
 }
 
@@ -453,6 +456,7 @@ impl Read for GuestFile {
                 std::io::ErrorKind::IsADirectory,
                 "Attempt to read from a directory as a guest file",
             )),
+            GuestFile::Pipe(pipe) => pipe.read(buf),
             _ => unimplemented!(),
         }
     }
@@ -469,6 +473,7 @@ impl Write for GuestFile {
                 panic!("Attempt to write to a read-only file: {file:?}")
             }
             GuestFile::Directory => panic!("Attempt to write to a directory as a guest file"),
+            GuestFile::Pipe(pipe) => pipe.write(buf),
             _ => unimplemented!(),
         }
     }
@@ -484,6 +489,7 @@ impl Write for GuestFile {
                 panic!("Attempt to flush a read-only file: {file:?}")
             }
             GuestFile::Directory => panic!("Attempt to flush a directory as a guest file"),
+            GuestFile::Pipe(_) => Ok(()),
             _ => unimplemented!(),
         }
     }

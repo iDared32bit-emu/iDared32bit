@@ -33,7 +33,7 @@ use crate::libc::errno::{
     ETIMEDOUT,
 };
 use crate::libc::posix_io::{
-    close, find_or_create_socket, is_nonblocking, is_socket, FileDescriptor,
+    close, find_or_create_socket, is_nonblocking, is_socket, pipe_is_ready, FileDescriptor,
 };
 use crate::libc::time::timeval;
 use crate::mem::{
@@ -653,7 +653,12 @@ fn check_fds(
         log_dbg!("select: read_set before {:?}", read_set);
         count += process_set(env, &mut read_set, n_fds, |env, fd, bits, bit_index| {
             log_dbg!("select: bit set in read_set at fd: {}", fd);
-            // Only sockets for now
+            if let Some(ready) = pipe_is_ready(env, fd) {
+                if !ready {
+                    *bits &= !(1 << bit_index);
+                }
+                return ready;
+            }
             assert!(is_socket(env, fd));
             // Clean bit in the set for the current socket
             *bits &= !(1 << bit_index);
@@ -787,7 +792,12 @@ fn check_fds(
         log_dbg!("select: write_set before {:?}", write_set);
         count += process_set(env, &mut write_set, n_fds, |env, fd, bits, bit_index| {
             log_dbg!("select: bit set in write_set at fd: {}", fd);
-            // Only sockets for now
+            if let Some(ready) = pipe_is_ready(env, fd) {
+                if !ready {
+                    *bits &= !(1 << bit_index);
+                }
+                return ready;
+            }
             assert!(is_socket(env, fd));
             // Clean bit in the set for the current socket
             *bits &= !(1 << bit_index);
@@ -831,7 +841,11 @@ fn check_fds(
         log_dbg!("select: error_set before {:?}", error_set);
         count += process_set(env, &mut error_set, n_fds, |env, fd, bits, bit_index| {
             log_dbg!("select: bit set in error_set at fd: {}", fd);
-            // Only sockets for now
+            // Pipes have no exceptional conditions.
+            if pipe_is_ready(env, fd).is_some() {
+                *bits &= !(1 << bit_index);
+                return false;
+            }
             assert!(is_socket(env, fd));
             // Clean bit in the set for the current socket
             *bits &= !(1 << bit_index);

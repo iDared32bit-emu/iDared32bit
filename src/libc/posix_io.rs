@@ -5,6 +5,7 @@
  */
 //! POSIX I/O functions (`fcntl.h`, parts of `unistd.h`, etc)
 
+pub mod pipe;
 pub mod stat;
 pub mod statvfs;
 
@@ -12,8 +13,8 @@ use crate::abi::DotDotDot;
 use crate::dyld::{export_c_func, FunctionExports};
 use crate::fs::{FsError, GuestFile, GuestOpenOptions, GuestPath};
 use crate::libc::errno::{
-    set_errno, EACCES, EBADF, EEXIST, EFAULT, EINTR, EINVAL, EIO, EISDIR, ENOENT, ENOTDIR,
-    EOVERFLOW, ESPIPE,
+    set_errno, EACCES, EAGAIN, EBADF, EEXIST, EFAULT, EINTR, EINVAL, EIO, EISDIR, ENOENT, ENOTDIR,
+    EOVERFLOW, EPIPE, ESPIPE,
 };
 use crate::libc::sys::socket::close_socket;
 use crate::libc::unistd::pid_t;
@@ -21,7 +22,9 @@ use crate::mem::{
     ConstPtr, ConstVoidPtr, GuestISize, GuestUSize, MutPtr, MutVoidPtr, Ptr, SafeRead,
 };
 use crate::Environment;
-use std::io::{Read, Seek, SeekFrom, Write};
+use pipe::PipeEnd;
+use std::io::{ErrorKind, Read, Seek, SeekFrom, Write};
+use std::time::Duration;
 
 #[derive(Default)]
 pub struct State {
@@ -277,6 +280,9 @@ pub fn read(
         // TODO: set errno
         return -1;
     };
+    if matches!(file.file, GuestFile::Pipe(_)) {
+        return read_pipe(env, fd, buffer, size);
+    }
 
     let buffer_slice = env.mem.bytes_at_mut(buffer.cast(), size);
     match file.file.read(buffer_slice) {
@@ -408,6 +414,9 @@ pub fn write(
     if buffer.is_null() {
         assert_eq!(size, 0);
         return 0;
+    }
+    if matches!(file.file, GuestFile::Pipe(_)) {
+        return write_pipe(env, fd, buffer, size);
     }
 
     let buffer_slice = env.mem.bytes_at(buffer.cast(), size);
@@ -954,6 +963,7 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(pwrite(_, _, _, _)),
     export_c_func!(lseek(_, _, _)),
     export_c_func!(close(_)),
+    export_c_func!(pipe(_)),
     export_c_func!(rename(_, _)),
     export_c_func!(getcwd(_, _)),
     export_c_func!(chdir(_)),
@@ -981,6 +991,101 @@ fn find_or_create_fd(env: &mut Environment, host_object: PosixFileHostObject) ->
         idx
     };
     file_idx_to_fd(idx)
+}
+
+fn pipe(env: &mut Environment, fds: MutPtr<FileDescriptor>) -> i32 {
+    set_errno(env, 0);
+    let (read_end, write_end) = PipeEnd::new_pair();
+    let host_object = |file, status_flags| PosixFileHostObject {
+        file,
+        needs_flush: false,
+        reached_eof: false,
+        flags: 0,
+        status_flags,
+    };
+    let read_fd = find_or_create_fd(env, host_object(GuestFile::Pipe(read_end), O_RDONLY));
+    let write_fd = find_or_create_fd(env, host_object(GuestFile::Pipe(write_end), O_WRONLY));
+    env.mem.write(fds, read_fd);
+    env.mem.write(fds + 1, write_fd);
+    log_dbg!("pipe({:?}) => 0, fds {} and {}", fds, read_fd, write_fd);
+    0
+}
+
+/// Like [read()], for a pipe: waits for a write unless it's non-blocking.
+fn read_pipe(
+    env: &mut Environment,
+    fd: FileDescriptor,
+    buffer: MutVoidPtr,
+    size: GuestUSize,
+) -> GuestISize {
+    loop {
+        let file = env.libc_state.posix_io.file_for_fd(fd).unwrap();
+        let nonblocking = file.status_flags & O_NONBLOCK != 0;
+        let GuestFile::Pipe(pipe) = &mut file.file else {
+            unreachable!();
+        };
+        match pipe.read(env.mem.bytes_at_mut(buffer.cast(), size)) {
+            Ok(count) => return count.try_into().unwrap(),
+            Err(e) if e.kind() == ErrorKind::WouldBlock && nonblocking => {
+                set_errno(env, EAGAIN);
+                return -1;
+            }
+            Err(e) if e.kind() == ErrorKind::WouldBlock => env.sleep(Duration::from_millis(1)),
+            Err(e) => panic!("read() from pipe {fd} failed: {e}"),
+        }
+    }
+}
+
+/// Like [write()], for a pipe: waits until it's all written, unless it's
+/// non-blocking.
+fn write_pipe(
+    env: &mut Environment,
+    fd: FileDescriptor,
+    buffer: ConstVoidPtr,
+    size: GuestUSize,
+) -> GuestISize {
+    let mut written = 0;
+    loop {
+        let file = env.libc_state.posix_io.file_for_fd(fd).unwrap();
+        let nonblocking = file.status_flags & O_NONBLOCK != 0;
+        let GuestFile::Pipe(pipe) = &mut file.file else {
+            unreachable!();
+        };
+        let bytes = &env.mem.bytes_at(buffer.cast(), size)[written..];
+        let remaining = bytes.len();
+        match pipe.write(bytes) {
+            Ok(count) => {
+                written += count;
+                if count == remaining || nonblocking {
+                    return written.try_into().unwrap();
+                }
+            }
+            Err(e) if e.kind() == ErrorKind::WouldBlock && written > 0 && nonblocking => {
+                return written.try_into().unwrap();
+            }
+            Err(e) if e.kind() == ErrorKind::WouldBlock && nonblocking => {
+                set_errno(env, EAGAIN);
+                return -1;
+            }
+            Err(e) if e.kind() == ErrorKind::WouldBlock => env.sleep(Duration::from_millis(1)),
+            Err(e) if e.kind() == ErrorKind::BrokenPipe => {
+                // iOS would also send SIGPIPE, which games ignore if they
+                // write to pipes that may be closed. Signals aren't sent.
+                set_errno(env, EPIPE);
+                return -1;
+            }
+            Err(e) => panic!("write() to pipe {fd} failed: {e}"),
+        }
+    }
+}
+
+/// Whether a pipe end could be read from (or written to, for a write end)
+/// without waiting, for `select()`. [None] if `fd` isn't a pipe.
+pub fn pipe_is_ready(env: &mut Environment, fd: FileDescriptor) -> Option<bool> {
+    match &env.libc_state.posix_io.file_for_fd(fd)?.file {
+        GuestFile::Pipe(pipe) => Some(pipe.is_ready()),
+        _ => None,
+    }
 }
 
 /// Helper function for socket creation, not part of API

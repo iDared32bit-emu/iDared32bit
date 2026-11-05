@@ -29,6 +29,7 @@ pub const EISDIR: i32 = 21;
 pub const EINVAL: i32 = 22;
 pub const ESPIPE: i32 = 29;
 pub const EROFS: i32 = 30;
+pub const EPIPE: i32 = 32;
 pub const EAGAIN: i32 = 35;
 pub const EPROTONOSUPPORT: i32 = 43;
 pub const ENOTSUP: i32 = 45;

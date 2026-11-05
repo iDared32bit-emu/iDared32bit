@@ -29,6 +29,7 @@
 #include <pthread.h>
 #include <semaphore.h>
 #include <setjmp.h>
+#include <signal.h>
 #include <stdarg.h>
 #include <stddef.h>
 #include <stdio.h>
@@ -8823,6 +8824,70 @@ cleanup:
 }
 
 // clang-format off
+static void *pipe_writer(void *write_fd) {
+  usleep(10000);
+  write(*(int *)write_fd, "x", 1);
+  return NULL;
+}
+
+int test_pipe() {
+  int fds[2];
+  char buf[4];
+  fd_set set;
+  struct timeval timeout = {0, 1000};
+  pthread_t thread;
+  if (pipe(fds) != 0) {
+    return -1;
+  }
+  // Nothing to read yet.
+  FD_ZERO(&set);
+  FD_SET(fds[0], &set);
+  if (select(fds[0] + 1, &set, NULL, NULL, &timeout) != 0 ||
+      FD_ISSET(fds[0], &set)) {
+    return -2;
+  }
+  fcntl(fds[0], F_SETFL, O_NONBLOCK);
+  if (read(fds[0], buf, sizeof(buf)) != -1 || errno != EAGAIN) {
+    return -3;
+  }
+  fcntl(fds[0], F_SETFL, 0);
+  // select() with no timeout waits for another thread's write.
+  pthread_create(&thread, NULL, pipe_writer, &fds[1]);
+  FD_ZERO(&set);
+  FD_SET(fds[0], &set);
+  if (select(fds[0] + 1, &set, NULL, NULL, NULL) != 1 ||
+      !FD_ISSET(fds[0], &set)) {
+    return -4;
+  }
+  pthread_join(thread, NULL);
+  if (read(fds[0], buf, sizeof(buf)) != 1 || buf[0] != 'x') {
+    return -5;
+  }
+  // So does a blocking read.
+  pthread_create(&thread, NULL, pipe_writer, &fds[1]);
+  if (read(fds[0], buf, sizeof(buf)) != 1 || buf[0] != 'x') {
+    return -6;
+  }
+  pthread_join(thread, NULL);
+  // EOF once the write end is closed.
+  close(fds[1]);
+  if (read(fds[0], buf, sizeof(buf)) != 0) {
+    return -7;
+  }
+  close(fds[0]);
+  // Writing with the read end closed fails.
+  if (pipe(fds) != 0) {
+    return -8;
+  }
+  close(fds[0]);
+  signal(SIGPIPE, SIG_IGN);
+  if (write(fds[1], "x", 1) != -1 || errno != EPIPE) {
+    return -9;
+  }
+  close(fds[1]);
+  return 0;
+}
+
 #define FUNC_DEF(func)                                                         \
   { &func, #func }
 struct {
@@ -8989,6 +9054,7 @@ struct {
     FUNC_DEF(test_malloc_zone_struct_dispatch),
     FUNC_DEF(test_fcvt),
     FUNC_DEF(test_tempfile),
+    FUNC_DEF(test_pipe),
 };
 // clang-format on
 
