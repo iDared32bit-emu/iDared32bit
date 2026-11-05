@@ -47,7 +47,7 @@ use std::collections::{HashMap, HashSet};
 use std::io;
 use std::io::{Read, Write};
 use std::net::{SocketAddr, SocketAddrV4, TcpListener, TcpStream, UdpSocket};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 pub const AF_INET: i32 = 2;
 pub const SOCK_STREAM: i32 = 1;
@@ -613,21 +613,39 @@ fn select(
         return 0;
     }
 
-    let should_block = if !timeout.is_null() {
+    // Checks every millisecond, letting other threads run, until something
+    // is ready or the timeout (if any) is over.
+    let deadline = (!timeout.is_null()).then(|| {
         let timeval = env.mem.read(timeout);
-        let tv_sec = timeval.tv_sec;
-        let tv_usec = timeval.tv_usec;
-        if tv_sec == 0 && tv_usec == 0 {
-            // Happy path, just polling once
-            false
-        } else {
-            log_dbg!("TODO: Ignore non-zero timeout {:?} in select()", timeval);
-            true
+        let duration = Duration::from_secs(timeval.tv_sec.try_into().unwrap())
+            + Duration::from_micros(timeval.tv_usec.try_into().unwrap());
+        Instant::now() + duration
+    });
+    let set_ptrs = [read_fds, write_fds, error_fds];
+    let sets = set_ptrs.map(|set| (!set.is_null()).then(|| env.mem.read(set)));
+    loop {
+        for (ptr, set) in set_ptrs.into_iter().zip(sets) {
+            if let Some(set) = set {
+                env.mem.write(ptr, set);
+            }
         }
-    } else {
-        true
-    };
+        let count = check_fds(env, n_fds, read_fds, write_fds, error_fds);
+        if count > 0 || deadline.is_some_and(|deadline| Instant::now() >= deadline) {
+            return count;
+        }
+        env.sleep(Duration::from_millis(1));
+    }
+}
 
+/// Helper for [select]: checks each file descriptor once, leaving only the
+/// ready ones in the sets.
+fn check_fds(
+    env: &mut Environment,
+    n_fds: i32,
+    read_fds: MutPtr<fd_set>,
+    write_fds: MutPtr<fd_set>,
+    error_fds: MutPtr<fd_set>,
+) -> i32 {
     let mut count = 0;
 
     if !read_fds.is_null() {
@@ -669,7 +687,6 @@ fn select(
                         }
                         Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
                             log_dbg!("select: Socket {} would block on peeking, continue.", fd);
-                            assert!(!should_block); // TODO
                             false
                         }
                         Err(e) => {
@@ -708,7 +725,6 @@ fn select(
                             Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
                                 // No incoming connection is ready
                                 log_dbg!("select: TCP listener for socket {} would block on accepting, continue.", fd);
-                                assert!(!should_block); // TODO
                                 return false;
                             }
                             Err(e) => {
@@ -752,7 +768,6 @@ fn select(
                                 "select: TCP stream for socket {} would block on peeking, continue.",
                                 fd
                             );
-                            assert!(!should_block); // TODO
                             false
                         }
                         Err(e) => {
@@ -789,7 +804,6 @@ fn select(
                         *bits |= 1 << bit_index;
                         true
                     } else {
-                        assert!(!should_block); // TODO
                         false
                     }
                 }
@@ -802,7 +816,6 @@ fn select(
                         *bits |= 1 << bit_index;
                         true
                     } else {
-                        assert!(!should_block); // TODO
                         false
                     }
                 }
