@@ -757,6 +757,18 @@ void CGContextStrokeLineSegments(CGContextRef c, const CGPoint *points,
 void CGContextClipToRect(CGContextRef c, CGRect rect);
 void CGContextClipToRects(CGContextRef c, const CGRect *rects, size_t count);
 
+// `CGLayer.h`
+
+typedef struct _CGLayer *CGLayerRef;
+
+CGLayerRef CGLayerCreateWithContext(CGContextRef context, CGSize size,
+                                    const void *auxiliaryInfo);
+void CGLayerRelease(CGLayerRef layer);
+CGContextRef CGLayerGetContext(CGLayerRef layer);
+CGSize CGLayerGetSize(CGLayerRef layer);
+void CGContextDrawLayerInRect(CGContextRef c, CGRect rect, CGLayerRef layer);
+void CGContextDrawLayerAtPoint(CGContextRef c, CGPoint point, CGLayerRef layer);
+
 // `CGGradient.h`
 
 typedef struct _CGGradient *CGGradientRef;

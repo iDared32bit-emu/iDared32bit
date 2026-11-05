@@ -6840,6 +6840,49 @@ int test_NSString_stringByReplacingOccurrencesOfString_options_range() {
   return 0;
 }
 
+int test_CGLayer() {
+  uint8_t pixels[8 * 8 * 4];
+  memset(pixels, 0, sizeof(pixels));
+  CGColorSpaceRef rgb = CGColorSpaceCreateDeviceRGB();
+  CGContextRef c = CGBitmapContextCreate(pixels, 8, 8, 8, 8 * 4, rgb,
+                                         kCGImageAlphaPremultipliedLast);
+  CGLayerRef layer = CGLayerCreateWithContext(c, CGSizeMake(4, 4), NULL);
+  int res = 0;
+  CGSize size = CGLayerGetSize(layer);
+  CGContextRef lc = CGLayerGetContext(layer);
+  if (size.width != 4 || size.height != 4 || lc == NULL) {
+    res = -1;
+    goto done;
+  }
+  // A transparent layer draws nothing.
+  CGContextDrawLayerInRect(c, CGRectMake(0, 0, 8, 8), layer);
+  if (pixels[3] != 0) {
+    res = -2;
+    goto done;
+  }
+  // What's drawn in the layer is scaled to the rect.
+  CGContextSetRGBFillColor(lc, 0, 0, 1, 1);
+  CGContextFillRect(lc, CGRectMake(0, 0, 4, 4));
+  CGContextDrawLayerInRect(c, CGRectMake(2, 2, 4, 4), layer);
+  if (pixels[(3 * 8 + 3) * 4 + 2] != 255 ||
+      pixels[(3 * 8 + 3) * 4 + 3] != 255 || pixels[3] != 0) {
+    res = -3;
+    goto done;
+  }
+  // y = 0 is the bottom row, which is last in memory.
+  CGContextDrawLayerAtPoint(c, CGPointMake(0, 0), layer);
+  if (pixels[(7 * 8 + 0) * 4 + 2] != 255 || pixels[2] == 255) {
+    res = -4;
+    goto done;
+  }
+
+done:
+  CGLayerRelease(layer);
+  CGContextRelease(c);
+  CGColorSpaceRelease(rgb);
+  return res;
+}
+
 // Each clip rect is symmetric top to bottom, as in test_CGContext_paths.
 int test_CGContext_clip() {
   uint8_t pixels[8 * 8 * 4];
@@ -9073,6 +9116,7 @@ struct {
     FUNC_DEF(test_CGImage_JPEG),
     FUNC_DEF(test_CGContext_paths),
     FUNC_DEF(test_CGContext_clip),
+    FUNC_DEF(test_CGLayer),
     FUNC_DEF(test_NSMutableString_deleteCharactersInRange),
     FUNC_DEF(test_NSMutableString_insertString_atIndex),
     FUNC_DEF(test_NSString_stringByReplacingOccurrencesOfString),
