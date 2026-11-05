@@ -754,6 +754,8 @@ void CGContextSetRGBStrokeColor(CGContextRef c, CGFloat r, CGFloat g, CGFloat b,
 void CGContextSetLineWidth(CGContextRef c, CGFloat width);
 void CGContextStrokeLineSegments(CGContextRef c, const CGPoint *points,
                                  size_t count);
+void CGContextClipToRect(CGContextRef c, CGRect rect);
+void CGContextClipToRects(CGContextRef c, const CGRect *rects, size_t count);
 
 // `CGGradient.h`
 
