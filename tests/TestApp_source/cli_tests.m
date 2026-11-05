@@ -1903,6 +1903,32 @@ int test_strtol() {
   return 0;
 }
 
+int test_mktemp() {
+  char name[] = "/usr/tmpXXXXXX";
+  char *res = mktemp(name);
+  if (res != name || strncmp(name, "/usr/tmp", 8) != 0 || strlen(name) != 14 ||
+      strcmp(name + 8, "XXXXXX") == 0) {
+    return -1;
+  }
+  for (int i = 8; i < 14; i++) {
+    char c = name[i];
+    if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+          (c >= '0' && c <= '9'))) {
+      return -2;
+    }
+  }
+  char missing[] = "/does/not/existXXXXXX";
+  if (mktemp(missing) != NULL || errno != ENOENT) {
+    return -3;
+  }
+  // With no X's, it can only be the name given, which here is taken.
+  char taken[] = "/usr";
+  if (mktemp(taken) != NULL || errno != EEXIST) {
+    return -4;
+  }
+  return 0;
+}
+
 int test_getpeername() {
   struct sockaddr_in addr;
   socklen_t len = sizeof(addr);
@@ -9084,6 +9110,7 @@ struct {
     FUNC_DEF(test_strtoul),
     FUNC_DEF(test_strtol),
     FUNC_DEF(test_strtoll),
+    FUNC_DEF(test_mktemp),
     FUNC_DEF(test_getpeername),
     FUNC_DEF(test_wcstol),
     FUNC_DEF(test_dirent),

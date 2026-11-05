@@ -9,7 +9,7 @@ use crate::abi::{CallFromHost, GuestFunction};
 use crate::dyld::{export_c_func, export_c_func_aliased, FunctionExports};
 use crate::fs::{resolve_path, GuestPath};
 use crate::libc::clocale::{setlocale, LC_CTYPE};
-use crate::libc::errno::{set_errno, EINVAL};
+use crate::libc::errno::{set_errno, EEXIST, EINVAL, ENOENT, ENOTDIR};
 use crate::libc::string::strlen;
 use crate::libc::wchar::wchar_t;
 use crate::mem::{ConstPtr, ConstVoidPtr, GuestUSize, MutPtr, MutVoidPtr, Ptr, SafeRead};
@@ -693,6 +693,51 @@ fn fcvt(
     fcvt_buf
 }
 
+/// Replaces the `X`s at the end of `template` to make the name of a file
+/// that doesn't exist yet. Like iOS, it doesn't create the file.
+fn mktemp(env: &mut Environment, template: MutPtr<u8>) -> MutPtr<u8> {
+    set_errno(env, 0);
+    let mut name = env.mem.cstr_at(template.cast_const()).to_vec();
+    let x_count = name.iter().rev().take_while(|&&c| c == b'X').count();
+    let start = name.len() - x_count;
+
+    // The folder it's in must already exist.
+    if let Some(slash) = name.iter().rposition(|&c| c == b'/') {
+        let folder = String::from_utf8_lossy(&name[..slash.max(1)]).into_owned();
+        let folder = GuestPath::new(&folder);
+        if !env.fs.is_dir(folder) {
+            let errno = if env.fs.exists(folder) {
+                ENOTDIR
+            } else {
+                ENOENT
+            };
+            set_errno(env, errno);
+            return Ptr::null();
+        }
+    }
+
+    const CHARS: &[u8] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+    for _ in 0..1000 {
+        let random = uuid::Uuid::new_v4().as_u128();
+        for (i, c) in name[start..].iter_mut().enumerate() {
+            *c = CHARS[((random >> (i % 21 * 6)) % CHARS.len() as u128) as usize];
+        }
+        let path = String::from_utf8_lossy(&name).into_owned();
+        if !env.fs.exists(GuestPath::new(&path)) {
+            env.mem
+                .bytes_at_mut(template, name.len() as GuestUSize)
+                .copy_from_slice(&name);
+            log_dbg!("mktemp() => {:?}", path);
+            return template;
+        }
+        if x_count == 0 {
+            break;
+        }
+    }
+    set_errno(env, EEXIST);
+    Ptr::null()
+}
+
 pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(malloc(_)),
     export_c_func!(malloc_size(_)),
@@ -731,6 +776,7 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(wcstombs(_, _, _)),
     export_c_func!(system(_)),
     export_c_func!(fcvt(_, _, _, _)),
+    export_c_func!(mktemp(_)),
 ];
 
 /// A simple wrapper around [atof_inner_generic] for the case of C string.
