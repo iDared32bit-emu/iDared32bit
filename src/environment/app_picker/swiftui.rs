@@ -75,11 +75,13 @@ pub fn app_picker(
         .zip(&icons)
         .map(|(app, icon)| {
             format!(
-                "{{\"name\":{},\"iconWidth\":{},\"iconHeight\":{},\"hasIcon\":{}}}",
+                "{{\"name\":{},\"iconWidth\":{},\"iconHeight\":{},\"hasIcon\":{},\
+                 \"crashed\":{}}}",
                 json_string(&app.display_name),
                 icon.dimensions().0,
                 icon.dimensions().1,
                 app.icon.is_some(),
+                app.crashed,
             )
         })
         .collect();

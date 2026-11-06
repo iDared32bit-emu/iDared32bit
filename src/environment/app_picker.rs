@@ -54,7 +54,13 @@ struct AppInfo {
     display_name_ns_string: Option<id>,
     /// `UIImage*`
     icon_ui_image: Option<id>,
+    /// Whether it crashed the last time it was played.
+    #[cfg_attr(not(target_os = "ios"), allow(dead_code))]
+    crashed: bool,
 }
+
+/// The game picked last, to note whether it crashed.
+static LAST_PICKED: std::sync::Mutex<Option<PathBuf>> = std::sync::Mutex::new(None);
 
 pub fn app_picker(options: Options) -> Result<(PathBuf, Vec<String>), String> {
     let apps = find_apps(&options);
@@ -66,7 +72,10 @@ pub fn app_picker(options: Options) -> Result<(PathBuf, Vec<String>), String> {
         let (mut apps, mut state) = (apps, None);
         loop {
             match swiftui::app_picker(apps, state)? {
-                swiftui::Picked::App(path, args) => return Ok((path, args)),
+                swiftui::Picked::App(path, args) => {
+                    *LAST_PICKED.lock().unwrap() = Some(path.clone());
+                    return Ok((path, args));
+                }
                 swiftui::Picked::Reload(new_state) => {
                     state = Some(new_state);
                     apps = find_apps(&options);
@@ -102,7 +111,13 @@ fn find_apps(options: &Options) -> Result<Vec<AppInfo>, String> {
         // keeps them between runs.
         let cache = paths::cache_dir().filter(|_| best_icons).map(|dir| {
             let settings = format!("{} best_icons={}", languages.join(","), best_icons);
-            cache::Cache::load(&dir, &settings)
+            let mut cache = cache::Cache::load(&dir, &settings);
+            // Back from a game: it crashed if there's an error to show.
+            if let Some(last) = LAST_PICKED.lock().unwrap().take() {
+                let crashed = crate::window::START_ERROR.lock().unwrap().is_some();
+                cache.set_crashed(&last, crashed);
+            }
+            cache
         });
         enumerate_apps(&apps_dir, &languages, best_icons, cache)
             .map_err(|err| {
@@ -175,13 +190,14 @@ fn enumerate_apps(
             continue;
         }
 
-        if let Some((display_name, icon)) = cache.as_mut().and_then(|c| c.get(&app_path)) {
+        if let Some((display_name, icon, crashed)) = cache.as_mut().and_then(|c| c.get(&app_path)) {
             apps.push(AppInfo {
                 path: app_path,
                 display_name,
                 icon,
                 display_name_ns_string: None,
                 icon_ui_image: None,
+                crashed,
             });
             continue;
         }
@@ -226,6 +242,7 @@ fn enumerate_apps(
             icon,
             display_name_ns_string: None,
             icon_ui_image: None,
+            crashed: false,
         });
     }
 

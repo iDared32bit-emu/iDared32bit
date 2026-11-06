@@ -21,6 +21,8 @@ struct PickerInput: Decodable {
         let iconWidth: Int
         let iconHeight: Int
         let hasIcon: Bool
+        /// Whether it crashed the last time it was played.
+        let crashed: Bool
     }
     /// A choice (`choices` set) or a switch. Values are a choice's index, or
     /// 1 for a switch that's on.
@@ -1123,6 +1125,15 @@ struct IconGrid: View {
                     .opacity(model.pressedApp == app ? 0.5 : 1)
                     .shadow(color: .black.opacity(0.35), radius: 3, y: 2)
                     .place(iconFrame)
+                if model.input.apps[app].crashed {
+                    CrashBadge()
+                        .place(CGRect(
+                            x: iconFrame.maxX - 20,
+                            y: iconFrame.minY + 2,
+                            width: 18,
+                            height: 18
+                        ))
+                }
                 if !model.hideIconLabels {
                     Text(labels[slot].text)
                         .font(.system(size: labelFontSize, weight: .medium))
@@ -1191,6 +1202,26 @@ struct IconGrid: View {
         } else {
             model.pressedApp = nil
         }
+    }
+}
+
+/// Marks a game that crashed the last time it was played.
+struct CrashBadge: View {
+    var body: some View {
+        ZStack {
+            // A white outline, so it shows on any icon.
+            Image(systemName: "octagon.fill")
+                .resizable()
+                .foregroundColor(.white)
+            Image(systemName: "exclamationmark.octagon.fill")
+                .resizable()
+                .symbolRenderingMode(.palette)
+                .foregroundStyle(.white, .red)
+                .padding(1.5)
+        }
+        .shadow(color: .black.opacity(0.35), radius: 1, y: 1)
+        .accessibilityElement()
+        .accessibilityLabel("Crashed last time")
     }
 }
 

@@ -49,8 +49,9 @@ impl Cache {
         }
     }
 
-    /// The name and icon saved for a game, if it hasn't changed since.
-    pub fn get(&mut self, app_path: &Path) -> Option<(String, Option<Image>)> {
+    /// The name and icon saved for a game, if it hasn't changed since, and
+    /// whether it crashed the last time it was played.
+    pub fn get(&mut self, app_path: &Path) -> Option<(String, Option<Image>, bool)> {
         let key = key(app_path)?;
         let stamp = stamp(app_path)?;
         let entry = self.old.get(&key)?.as_dictionary()?;
@@ -62,8 +63,24 @@ impl Cache {
             Some(icon) => Some(Image::from_png_premultiplied(icon.as_data()?).ok()?),
             None => None,
         };
+        let crashed = entry.get("Crashed").and_then(Value::as_boolean) == Some(true);
         self.new.insert(key, Value::Dictionary(entry.clone()));
-        Some((name, icon))
+        Some((name, icon, crashed))
+    }
+
+    /// Notes whether a game crashed the last time it was played. Only kept
+    /// for a game already in the cache, until it or iDared 32bit changes.
+    pub fn set_crashed(&mut self, app_path: &Path, crashed: bool) {
+        let Some(Value::Dictionary(entry)) = key(app_path).and_then(|key| self.old.get_mut(&key))
+        else {
+            return;
+        };
+        if crashed {
+            entry.insert("Crashed".to_string(), Value::Boolean(true));
+        } else if entry.remove("Crashed").is_none() {
+            return;
+        }
+        self.changed = true;
     }
 
     /// Saves a game's name and icon (none if it couldn't be loaded).
@@ -153,14 +170,43 @@ mod tests {
         cache.save();
 
         let mut cache = Cache::load(&dir, "en");
-        let (name, icon) = cache.get(&game).unwrap();
+        let (name, icon, crashed) = cache.get(&game).unwrap();
         assert_eq!(name, "Game");
+        assert!(!crashed);
         let icon = icon.unwrap();
         assert_eq!(icon.dimensions(), (2, 2));
         assert_eq!(icon.pixels(), &pixels[..]);
 
         // Different settings: nothing is used.
         assert!(Cache::load(&dir, "fr").get(&game).is_none());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn crashed_until_played_without_a_crash() {
+        let dir = test_dir("crashed");
+        let game = dir.join("Game.ipa");
+        std::fs::write(&game, b"game").unwrap();
+        let mut cache = Cache::load(&dir, "");
+        cache.insert(&game, "Game", None);
+        cache.save();
+
+        let mut cache = Cache::load(&dir, "");
+        cache.set_crashed(&game, true);
+        // Not in the cache, so not kept.
+        cache.set_crashed(&dir.join("Other.ipa"), true);
+        assert!(cache.get(&game).unwrap().2);
+        cache.save();
+        let mut cache = Cache::load(&dir, "");
+        assert!(cache.get(&game).unwrap().2);
+        assert!(cache.get(&dir.join("Other.ipa")).is_none());
+
+        // Played again without a crash. The picker gets every game present.
+        let mut cache = Cache::load(&dir, "");
+        cache.set_crashed(&game, false);
+        assert!(!cache.get(&game).unwrap().2);
+        cache.save();
+        assert!(!Cache::load(&dir, "").get(&game).unwrap().2);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
