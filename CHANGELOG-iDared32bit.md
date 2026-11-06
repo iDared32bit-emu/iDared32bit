@@ -16,6 +16,7 @@ Compatibility:
 - Fixed crashes in some games when drawing.
 - Fixed crashes in some games when saving.
 - Fixed slowdowns in some games when they save data.
+- Fixed slowdowns on iPhone and iPad in some games when they load graphics.
 
 ## v1.5.1 (2026-11-04)
 
