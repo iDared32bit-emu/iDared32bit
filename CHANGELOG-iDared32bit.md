@@ -15,6 +15,7 @@ Compatibility:
 - Fixed some games not closing when quit.
 - Fixed crashes in some games when drawing.
 - Fixed crashes in some games when saving.
+- Fixed slowdowns in some games when they save data.
 
 ## v1.5.1 (2026-11-04)
 
