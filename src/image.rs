@@ -36,6 +36,31 @@ const PNG_MAGIC_NUMBER: [u8; 8] = [137, 80, 78, 71, 13, 10, 26, 10];
 
 impl Image {
     pub fn from_bytes(bytes: &[u8]) -> Result<Image, String> {
+        Self::decode(bytes, /* premultiply_png: */ true)
+    }
+
+    /// Like [Self::from_bytes], for a PNG from [Self::to_png], whose pixels
+    /// are already premultiplied.
+    pub fn from_png_premultiplied(bytes: &[u8]) -> Result<Image, String> {
+        Self::decode(bytes, /* premultiply_png: */ false)
+    }
+
+    /// Encodes the pixels as they are, premultiplied, as a PNG. Read it back
+    /// with [Self::from_png_premultiplied].
+    pub fn to_png(&self) -> Vec<u8> {
+        let mut png = Vec::new();
+        let (width, height) = self.dimensions;
+        write_png(
+            (&mut png as *mut Vec<u8>).cast(),
+            width.try_into().unwrap(),
+            height.try_into().unwrap(),
+            self.pixels(),
+            (width * 4).try_into().unwrap(),
+        );
+        png
+    }
+
+    fn decode(bytes: &[u8], premultiply_png: bool) -> Result<Image, String> {
         let len: c_int = bytes.len().try_into().unwrap();
 
         let mut x: c_int = 0;
@@ -72,7 +97,7 @@ impl Image {
         let height: u32 = y.try_into().unwrap();
 
         // (Un-un-)premultiply pixels to match iPhone OS's image loading.
-        if bytes.starts_with(&PNG_MAGIC_NUMBER) {
+        if premultiply_png && bytes.starts_with(&PNG_MAGIC_NUMBER) {
             let len = width as usize * height as usize * 4;
             let pixels = unsafe { std::slice::from_raw_parts_mut(pixels, len) };
             let mut i = 0;

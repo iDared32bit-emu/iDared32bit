@@ -254,15 +254,25 @@ pub fn user_data_base_path() -> Cow<'static, Path> {
 
     #[cfg(target_os = "ios")]
     {
-        let mut pref_path =
-            PathBuf::from(sdl2::filesystem::pref_path("touchhle.org", "touchHLE").unwrap());
+        // SDL's folder for the app is only used to find Documents.
+        let mut pref_path = PathBuf::from(
+            sdl2::filesystem::pref_path("idared32bit-emu.com", "iDared 32bit").unwrap(),
+        );
 
-        // touchHLE
+        // iDared 32bit
         pref_path.pop();
-        // touchhle.org
+        // idared32bit-emu.com
         pref_path.pop();
         // Application Support
         pref_path.pop();
+        // Older versions used touchHLE's names, and SDL made empty folders
+        // for them, which are removed.
+        static REMOVE_OLD: std::sync::Once = std::sync::Once::new();
+        REMOVE_OLD.call_once(|| {
+            let old = pref_path.join("touchhle.org");
+            let _ = std::fs::remove_dir(old.join("touchHLE"));
+            let _ = std::fs::remove_dir(old);
+        });
         // Library
         pref_path.pop();
 
@@ -270,6 +280,16 @@ pub fn user_data_base_path() -> Cow<'static, Path> {
 
         return Cow::from(pref_path);
     }
+}
+
+/// Where files that can be rebuilt at any time are kept, out of sight of the
+/// user's own files. [None] if there's nowhere suitable.
+pub fn cache_dir() -> Option<PathBuf> {
+    // Documents' neighbour.
+    #[cfg(target_os = "ios")]
+    return Some(user_data_base_path().parent()?.join("Library/Caches"));
+    #[cfg(not(target_os = "ios"))]
+    None
 }
 
 /// macOS-only: the user data directory of a .app bundle. Older versions used

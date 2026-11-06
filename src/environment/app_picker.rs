@@ -6,6 +6,7 @@
 //! On iOS, a native SwiftUI picker is used instead when the app provides one
 //! (see `app_picker/swiftui.rs`).
 
+mod cache;
 #[cfg(target_os = "ios")]
 mod swiftui;
 
@@ -97,7 +98,13 @@ fn find_apps(options: &Options) -> Result<Vec<AppInfo>, String> {
         let best_icons = swiftui::is_available();
         #[cfg(not(target_os = "ios"))]
         let best_icons = false;
-        enumerate_apps(&apps_dir, &languages, best_icons)
+        // The picker that shows bigger icons, which take longest to load,
+        // keeps them between runs.
+        let cache = paths::cache_dir().filter(|_| best_icons).map(|dir| {
+            let settings = format!("{} best_icons={}", languages.join(","), best_icons);
+            cache::Cache::load(&dir, &settings)
+        });
+        enumerate_apps(&apps_dir, &languages, best_icons, cache)
             .map_err(|err| {
                 format!(
                     "Couldn't get list of apps in the {} directory: {}.",
@@ -157,6 +164,7 @@ fn enumerate_apps(
     apps_dir: &Path,
     languages: &[String],
     best_icons: bool,
+    mut cache: Option<cache::Cache>,
 ) -> Result<Vec<AppInfo>, std::io::Error> {
     let mut apps = Vec::new();
     for app in std::fs::read_dir(apps_dir)? {
@@ -164,6 +172,17 @@ fn enumerate_apps(
         if app_path.extension() != Some(OsStr::new("app"))
             && app_path.extension() != Some(OsStr::new("ipa"))
         {
+            continue;
+        }
+
+        if let Some((display_name, icon)) = cache.as_mut().and_then(|c| c.get(&app_path)) {
+            apps.push(AppInfo {
+                path: app_path,
+                display_name,
+                icon,
+                display_name_ns_string: None,
+                icon_ui_image: None,
+            });
             continue;
         }
 
@@ -197,6 +216,9 @@ fn enumerate_apps(
                 None
             }
         };
+        if let Some(cache) = cache.as_mut() {
+            cache.insert(&app_path, &display_name, icon.as_ref());
+        }
 
         apps.push(AppInfo {
             path: app_path,
@@ -207,6 +229,9 @@ fn enumerate_apps(
         });
     }
 
+    if let Some(cache) = cache {
+        cache.save();
+    }
     apps.sort_by_key(|app| app.display_name.to_uppercase());
 
     Ok(apps)
