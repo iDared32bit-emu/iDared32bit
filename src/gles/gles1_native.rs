@@ -554,26 +554,40 @@ impl GLES for GLES1Native<'_> {
         data: *const GLvoid,
     ) {
         let data = unsafe { std::slice::from_raw_parts(data.cast::<u8>(), image_size as usize) };
-        // IMG_texture_compression_pvrtc (only on Imagination/Apple GPUs)
-        // TODO: It would be more efficient to use hardware decoding where
-        // available (I just don't have a suitable device to try this on)
-        if try_decode_pvrtc(
-            self,
-            target,
-            level,
+        // IMG_texture_compression_pvrtc (only on Imagination/Apple GPUs). The
+        // GPU uses it as it is, if it can: decoding it here is far slower,
+        // e.g. when a game loads textures while it's being played.
+        let pvrtc = matches!(
             internalformat,
-            width,
-            height,
-            border,
-            data,
-        ) {
+            gles11::COMPRESSED_RGB_PVRTC_4BPPV1_IMG
+                | gles11::COMPRESSED_RGBA_PVRTC_4BPPV1_IMG
+                | gles11::COMPRESSED_RGB_PVRTC_2BPPV1_IMG
+                | gles11::COMPRESSED_RGBA_PVRTC_2BPPV1_IMG
+        );
+        let native_pvrtc = pvrtc
+            && unsafe { CStr::from_ptr(gles11::GetString(gles11::EXTENSIONS) as _) }
+                .to_str()
+                .unwrap()
+                .contains("GL_IMG_texture_compression_pvrtc");
+        if !native_pvrtc
+            && try_decode_pvrtc(
+                self,
+                target,
+                level,
+                internalformat,
+                width,
+                height,
+                border,
+                data,
+            )
+        {
             log_dbg!("Decoded PVRTC");
             return;
         }
 
         // OES_compressed_paletted_texture is in the common profile of OpenGL ES
         // 1.1, so we can reasonably assume it's supported.
-        if PalettedTextureFormat::get_info(internalformat).is_none() {
+        if !native_pvrtc && PalettedTextureFormat::get_info(internalformat).is_none() {
             unimplemented!("CompressedTexImage2D internalformat: {:#x}", internalformat);
         }
         log_dbg!("Directly supported texture format: {:#x}", internalformat);
