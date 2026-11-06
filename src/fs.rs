@@ -404,6 +404,18 @@ impl GuestFile {
 
     pub fn sync_all(&self) -> std::io::Result<()> {
         match self {
+            // A plain fsync(), as on iOS. On Apple platforms, Rust's
+            // sync_all() also flushes the drive's cache (F_FULLFSYNC), which
+            // is far slower, and games such as those using SQLite sync often.
+            #[cfg(unix)]
+            GuestFile::File(file) => {
+                use std::os::fd::AsRawFd;
+                match unsafe { libc::fsync(file.as_raw_fd()) } {
+                    0 => Ok(()),
+                    _ => Err(std::io::Error::last_os_error()),
+                }
+            }
+            #[cfg(not(unix))]
             GuestFile::File(file) => file.sync_all(),
             GuestFile::IpaBundleFile(_) | GuestFile::ResourceFile(_) => Ok(()),
             GuestFile::Directory => {
