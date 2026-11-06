@@ -4,6 +4,10 @@ iDared 32bit is based on [touchHLE](https://touchhle.org/). This file lists only
 
 ## NEXT
 
+Usability:
+
+- The app picker opens faster on iPhone and iPad: games' names and icons are remembered between runs.
+
 Compatibility:
 
 - Fixed a crash when starting some games that use networking.
