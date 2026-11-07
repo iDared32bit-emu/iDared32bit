@@ -156,7 +156,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 - (f64)decodeDoubleForKey:(id)key { // NSString *
     get_value_to_decode_for_key(env, this, key).map_or(
         0.0,
-        |value| value.as_real().unwrap()
+        decode_number,
     )
 }
 
@@ -164,11 +164,7 @@ pub const CLASSES: ClassExports = objc_classes! {
     // TODO: Check bounds, raise NSRangeException if it doesn't fit
     get_value_to_decode_for_key(env, this, key).map_or(
         0.0,
-        // Like iOS, any number will do: whole ones may be stored as integers.
-        |value| value.as_real()
-            .or_else(|| value.as_signed_integer().map(|i| i as f64))
-            .or_else(|| value.as_unsigned_integer().map(|i| i as f64))
-            .unwrap_or_else(|| panic!("Can't decode {value:?} as a float"))
+        decode_number,
     ) as f32
 }
 
@@ -400,6 +396,15 @@ pub fn decode_current_dict(env: &mut Environment, unarchiver: id) -> Vec<(id, id
         .collect();
 
     keys.into_iter().zip(vals).collect()
+}
+
+/// Like iOS, any number will do: whole ones may be stored as integers.
+fn decode_number(value: &Value) -> f64 {
+    value
+        .as_real()
+        .or_else(|| value.as_signed_integer().map(|i| i as f64))
+        .or_else(|| value.as_unsigned_integer().map(|i| i as f64))
+        .unwrap_or_else(|| panic!("Can't decode {value:?} as a number"))
 }
 
 /// Shortcut for use by `[NSDate initWithCoder:]`.
