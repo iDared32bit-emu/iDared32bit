@@ -9,7 +9,7 @@ use crate::abi::{CallFromHost, GuestFunction};
 use crate::dyld::{export_c_func, export_c_func_aliased, FunctionExports};
 use crate::fs::{resolve_path, GuestPath};
 use crate::libc::clocale::{setlocale, LC_CTYPE};
-use crate::libc::errno::{set_errno, EEXIST, EINVAL, ENAMETOOLONG, ENOENT, ENOTDIR};
+use crate::libc::errno::{set_errno, EEXIST, EINVAL, ENAMETOOLONG, ENOTDIR};
 use crate::libc::string::strlen;
 use crate::libc::wchar::wchar_t;
 use crate::mem::{ConstPtr, ConstVoidPtr, GuestUSize, MutPtr, MutVoidPtr, Ptr, SafeRead};
@@ -702,17 +702,13 @@ fn mktemp(env: &mut Environment, template: MutPtr<u8>) -> MutPtr<u8> {
     let x_count = name.iter().rev().take_while(|&&c| c == b'X').count();
     let start = name.len() - x_count;
 
-    // The folder it's in must already exist.
+    // As on iOS, a missing folder is fine (only mkstemp() checks), but not
+    // one that's a file, where looking the name up fails.
     if let Some(slash) = name.iter().rposition(|&c| c == b'/') {
         let folder = String::from_utf8_lossy(&name[..slash.max(1)]).into_owned();
         let folder = GuestPath::new(&folder);
-        if !env.fs.is_dir(folder) {
-            let errno = if env.fs.exists(folder) {
-                ENOTDIR
-            } else {
-                ENOENT
-            };
-            set_errno(env, errno);
+        if env.fs.exists(folder) && !env.fs.is_dir(folder) {
+            set_errno(env, ENOTDIR);
             return Ptr::null();
         }
     }

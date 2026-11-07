@@ -1918,8 +1918,9 @@ int test_mktemp() {
       return -2;
     }
   }
+  // Only mkstemp() needs the folder to exist.
   char missing[] = "/does/not/existXXXXXX";
-  if (mktemp(missing) != NULL || errno != ENOENT) {
+  if (mktemp(missing) != missing || strcmp(missing + 15, "XXXXXX") == 0) {
     return -3;
   }
   // With no X's, it can only be the name given, which here is taken.
