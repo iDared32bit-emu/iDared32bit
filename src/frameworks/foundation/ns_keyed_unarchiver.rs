@@ -164,7 +164,11 @@ pub const CLASSES: ClassExports = objc_classes! {
     // TODO: Check bounds, raise NSRangeException if it doesn't fit
     get_value_to_decode_for_key(env, this, key).map_or(
         0.0,
-        |value| value.as_real().unwrap()
+        // Like iOS, any number will do: whole ones may be stored as integers.
+        |value| value.as_real()
+            .or_else(|| value.as_signed_integer().map(|i| i as f64))
+            .or_else(|| value.as_unsigned_integer().map(|i| i as f64))
+            .unwrap_or_else(|| panic!("Can't decode {value:?} as a float"))
     ) as f32
 }
 
