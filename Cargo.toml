@@ -7,7 +7,7 @@
 version = "0.3.0"
 edition = "2021"
 license = "MPL-2.0"
-authors = ["touchHLE project contributors"]
+authors = ["iDared 32bit project contributors", "touchHLE project contributors"]
 homepage = "http://iDared32bit-emu.com/"
 
 [package]
