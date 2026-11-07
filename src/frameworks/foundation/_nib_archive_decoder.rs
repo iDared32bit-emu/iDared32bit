@@ -126,11 +126,15 @@ pub const CLASSES: ClassExports = objc_classes! {
     // TODO: Check bounds, raise NSRangeException if it doesn't fit
     get_value_to_decode_for_key(env, this, key).map_or(
         0.0,
-        |value| {
-            let &ValueVariant::Float(f) = value.value() else {
-                unreachable!()
-            };
-            f
+        // Like iOS, any number will do: nibs may store whole ones as integers.
+        |value| match *value.value() {
+            ValueVariant::Float(f) => f,
+            ValueVariant::Double(d) => d as f32,
+            ValueVariant::Int8(i) => i.into(),
+            ValueVariant::Int16(i) => i.into(),
+            ValueVariant::Int32(i) => i as f32,
+            ValueVariant::Int64(i) => i as f32,
+            ref other => panic!("Can't decode {other:?} as a float"),
         }
     )
 }
