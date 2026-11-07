@@ -1,0 +1,48 @@
+iDared 32bit brings classic iPhone games back to life on modern iPhone and iPad. Step back into the early era of iPhone gaming, from 2008 to 2010, and play the games that defined it, right on your current device.
+
+iDared 32bit is a high-level emulator for iPhone OS 2.x, iPhone OS 3.x, and iOS 4.x. It reimplements the original iPhone OS frameworks in software, allowing classic 32-bit games to run on newer 64-bit devices.
+
+FEATURES
+
+• Runs iPhone OS 2.x, iPhone OS 3.x, and iOS 4.x games on modern iPhone and iPad, including early iPad games
+• Built-in game picker: swipe between pages of your games, which open quickly because their names and icons are remembered
+• A small red marker in the game picker shows games that crashed last time, so you can see at a glance which ones may not work yet
+• Add games with the Import button, by sharing them from other apps, or through the Files app
+• On-screen “( X )” button lets you return to your games at any time
+• Touch, virtual cursor, and game-controller input, with tilt and accelerometer simulation
+• Game progress is saved between launches
+• Settings for sharper graphics (up to 4× resolution), orientation, fullscreen, network access, analog-stick tilt, and iPhone or iPad versions of universal games
+• Advanced per-game options in a text file
+
+THEME OPTIONS
+
+Make the game picker your own, in Settings > Theme Options:
+• Choose the header's background and text colors
+• Set a wallpaper from your photos
+• Hide the header logo for a cleaner look
+• Hide the names under game icons
+• Give the footer the header's background color
+
+HOW IT WORKS
+
+iDared 32bit does not include any games of its own. Add your own legally obtained games with the Import button or through the Files app, and they will appear in the built-in game picker.
+
+Don’t have any games yet? Tap Settings in the game picker, then “iDared 32bit Website”, to visit our site, where you’ll find free games to download and play with permission from their creators.
+
+COMPATIBILITY
+
+This is an actively developed emulator, not a finished product. Compatibility varies by title and improves over time through ongoing development. Games that crash are marked in the game picker, so you always know where things stand.
+
+ABOUT THIS PROJECT
+
+iDared 32bit is an independent project based on touchHLE, an open-source high-level emulator, adapted to run on modern iPhone and iPad devices. It is not affiliated with, endorsed by, or officially associated with the touchHLE project or its developers.
+
+iDared 32bit is open source and licensed under the Mozilla Public License 2.0. Its source code is available at:
+
+github.com/iDared32bit-emu/iDared32bit
+
+Use iDared 32bit only with software you have legally obtained.
+
+Not affiliated with or endorsed by Apple Inc.
+
+Apple, iPhone, iPad, and iPod touch are trademarks of Apple Inc., registered in the U.S. and other countries and regions. iOS is a trademark or registered trademark of Cisco in the U.S. and other countries and is used under license by Apple.
