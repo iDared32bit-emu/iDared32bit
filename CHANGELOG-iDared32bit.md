@@ -6,7 +6,7 @@ iDared 32bit is based on [touchHLE](https://touchhle.org/). This file lists only
 
 Compatibility:
 
-- Fixed a crash when starting some games that look for translated files.
+- Fixed crashes when starting some games that look up their own files.
 
 ## v1.5.2 (2026-11-07)
 

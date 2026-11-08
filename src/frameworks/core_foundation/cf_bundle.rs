@@ -107,6 +107,25 @@ fn CFBundleCopyResourceURL(
     msg![env; url copy]
 }
 
+fn CFBundleCopyResourceURLsOfType(
+    env: &mut Environment,
+    bundle: CFBundleRef,
+    resource_type: CFStringRef,
+    sub_dir_name: CFStringRef,
+) -> CFArrayRef {
+    let paths: id = msg![env; bundle pathsForResourcesOfType:resource_type
+                                                inDirectory:sub_dir_name];
+    let count: NSUInteger = msg![env; paths count];
+    let urls = (0..count)
+        .map(|i| {
+            let path: id = msg![env; paths objectAtIndex:i];
+            let url: id = msg_class![env; NSURL fileURLWithPath:path];
+            retain(env, url)
+        })
+        .collect();
+    ns_array::from_vec(env, urls)
+}
+
 pub fn CFBundleCopyBundleLocalizations(env: &mut Environment, bundle: CFBundleRef) -> CFArrayRef {
     let bundle_localizations = env
         .objc
@@ -197,6 +216,7 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(CFBundleCopyExecutableURL(_)),
     export_c_func!(CFBundleCopyResourcesDirectoryURL(_)),
     export_c_func!(CFBundleCopyResourceURL(_, _, _, _)),
+    export_c_func!(CFBundleCopyResourceURLsOfType(_, _, _)),
     export_c_func!(CFBundleCopyBundleLocalizations(_)),
     export_c_func!(CFBundleCopyPreferredLocalizationsFromArray(_)),
     export_c_func!(CFBundleCopyLocalizedString(_, _, _, _)),

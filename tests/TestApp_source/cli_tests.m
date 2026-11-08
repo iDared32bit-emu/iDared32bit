@@ -6676,6 +6676,46 @@ bool test_case_CFURLHasDirectoryPath(const char *str) {
   return res;
 }
 
+int test_CFBundleCopyResourceURLsOfType() {
+#ifdef DEFINE_ME_WHEN_BUILDING_ON_MACOS
+  const char *app = path_test_app();
+  CFURLRef appURL = CFURLCreateFromFileSystemRepresentation(
+      NULL, (const UInt8 *)app, strlen(app), true);
+  CFBundleRef bundle = CFBundleCreate(NULL, appURL);
+  CFRelease(appURL);
+#else
+  CFBundleRef bundle = CFBundleGetMainBundle();
+#endif
+  CFStringRef jpg = CFStringCreateWithCString(NULL, "jpg", 0x0600);
+  CFArrayRef urls = CFBundleCopyResourceURLsOfType(bundle, jpg, NULL);
+  CFRelease(jpg);
+  if (urls == NULL || CFArrayGetCount(urls) != 1) {
+    return -1;
+  }
+  char buf[PATH_BUF_SIZE];
+  CFURLRef url = CFArrayGetValueAtIndex(urls, 0);
+  if (!CFURLGetFileSystemRepresentation(url, true, (UInt8 *)buf,
+                                        PATH_BUF_SIZE)) {
+    return -2;
+  }
+  CFRelease(urls);
+  const char *name = strrchr(buf, '/');
+  if (name == NULL || strcmp(name, "/test_1x1_black_pixel.jpg") != 0) {
+    return -3;
+  }
+  CFStringRef none = CFStringCreateWithCString(NULL, "nonexistent", 0x0600);
+  urls = CFBundleCopyResourceURLsOfType(bundle, none, NULL);
+  CFRelease(none);
+  if (urls == NULL || CFArrayGetCount(urls) != 0) {
+    return -4;
+  }
+  CFRelease(urls);
+#ifdef DEFINE_ME_WHEN_BUILDING_ON_MACOS
+  CFRelease(bundle);
+#endif
+  return 0;
+}
+
 int test_CFURLHasDirectoryPath() {
   if (test_case_CFURLHasDirectoryPath("/a/b"))
     return -1;
@@ -9205,6 +9245,7 @@ struct {
     FUNC_DEF(test_CFNumberCompare_extended),
     FUNC_DEF(test_memset_pattern),
     FUNC_DEF(test_CGGeometry),
+    FUNC_DEF(test_CFBundleCopyResourceURLsOfType),
     FUNC_DEF(test_CFURLHasDirectoryPath),
     FUNC_DEF(test_CGImage_JPEG),
     FUNC_DEF(test_CGContext_paths),
