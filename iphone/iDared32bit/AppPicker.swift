@@ -546,7 +546,12 @@ final class PickerHostingController: UIHostingController<PickerView> {
 
     override func viewSafeAreaInsetsDidChange() {
         super.viewSafeAreaInsetsDidChange()
-        model.safeInsets = view.safeAreaInsets
+        // This can come during a SwiftUI update, which mustn't publish.
+        let insets = view.safeAreaInsets
+        guard insets != model.safeInsets else { return }
+        DispatchQueue.main.async { [model] in
+            model.safeInsets = insets
+        }
     }
 }
 
