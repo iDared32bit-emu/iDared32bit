@@ -87,6 +87,78 @@ pub const CLASSES: ClassExports = objc_classes! {
     }
 }
 
+- (id)popViewControllerAnimated:(bool)animated {
+    let (popped_vc, previous_vc) = {
+        let host_object =
+            env.objc.borrow::<UINavigationControllerHostObject>(this);
+        let stack = &host_object.navigation_stack;
+
+        if stack.len() <= 1 {
+            return nil;
+        }
+
+        (stack[stack.len() - 1], stack[stack.len() - 2])
+    };
+
+    let delegate =
+        env.objc.borrow::<UINavigationControllerHostObject>(this).delegate;
+
+    // Notify the delegate before changing the visible controller.
+    let sel: SEL = env.objc.register_host_selector(
+        "navigationController:willShowViewController:animated:".to_string(),
+        &mut env.mem,
+    );
+
+    let responds: bool = msg![env; delegate respondsToSelector:sel];
+    if responds {
+        () = msg![env; delegate
+            navigationController:this
+            willShowViewController:previous_vc
+            animated:animated];
+    }
+
+    // Notify both controllers of the transition.
+    () = msg![env; popped_vc viewWillDisappear:animated];
+    () = msg![env; previous_vc viewWillAppear:animated];
+
+    // Remove the top controller's view.
+    // The previous controller's view is already underneath it.
+    let popped_view: id = msg![env; popped_vc view];
+    () = msg![env; popped_view removeFromSuperview];
+
+    // Update the navigation stack.
+    {
+        let stack = &mut env
+            .objc
+            .borrow_mut::<UINavigationControllerHostObject>(this)
+            .navigation_stack;
+
+        stack.pop();
+    }
+
+    // Finish the appearance transition.
+    () = msg![env; popped_vc viewDidDisappear:animated];
+    () = msg![env; previous_vc viewDidAppear:animated];
+
+    // Notify the delegate after the transition.
+    let sel: SEL = env.objc.register_host_selector(
+        "navigationController:didShowViewController:animated:".to_string(),
+        &mut env.mem,
+    );
+
+    let responds: bool = msg![env; delegate respondsToSelector:sel];
+    if responds {
+        () = msg![env; delegate
+            navigationController:this
+            didShowViewController:previous_vc
+            animated:animated];
+    }
+
+    // The navigation stack owned a retain on this controller.
+    // Transfer that ownership to the autorelease pool.
+    autorelease(env, popped_vc)
+}
+
 - (id)topViewController {
     if let Some(top_vc) = env.objc.borrow::<UINavigationControllerHostObject>(this).navigation_stack.last() {
         *top_vc
