@@ -182,6 +182,9 @@ pub const CLASSES: ClassExports = objc_classes! {
                ofType:(id)extension // NSString*
           inDirectory:(id)directory // NSString*
       forLocalization:(id)localizationName { // NSString*
+    if localizationName == nil {
+        return msg![env; this pathForResource:name ofType:extension inDirectory:directory];
+    }
     assert!(name != nil); // TODO
 
     // TODO: cache result of lookups
@@ -191,24 +194,23 @@ pub const CLASSES: ClassExports = objc_classes! {
         return path;
     }
 
-    let lang_code = ns_string::to_rust_string(env, localizationName); // TODO: avoid copy
-    if let Some(&(_, lprojs)) = LANG_ID_TO_LANG_PROJ.iter().find(|&&(code, _)| code == lang_code) {
-        for lproj in lprojs {
-            let lproj: id = ns_string::get_static_str(env, lproj);
-            let localized_path = path_for_resource_helper(env, this, name, lproj, directory, extension);
-            if localized_path != nil {
-                return localized_path;
-            }
-        }
-    } else {
-        log!("TODO: language code {:?} isn't mapped to a language name, falling back to English", lang_code);
-
-        for lproj in ["English.lproj", "en.lproj"] {
-            let lproj: id = ns_string::get_static_str(env, lproj);
-            let path = path_for_resource_helper(env, this, name, lproj, directory, extension);
-            if path != nil {
-                return path;
-            }
+    // The localization is an .lproj folder's name, e.g. "fr" or "French".
+    // Bundles use either for the same language, so both are tried.
+    let lang = ns_string::to_rust_string(env, localizationName);
+    let first = format!("{lang}.lproj");
+    let mut lprojs = vec![first.clone()];
+    if let Some(&(_, names)) = LANG_ID_TO_LANG_PROJ
+        .iter()
+        .find(|&&(code, names)| code == lang || names.contains(&first.as_str()))
+    {
+        lprojs.extend(names.iter().filter(|&&n| n != first).map(|&n| n.to_string()));
+    }
+    for lproj in lprojs {
+        let lproj = ns_string::from_rust_string(env, lproj);
+        let path = path_for_resource_helper(env, this, name, lproj, directory, extension);
+        release(env, lproj);
+        if path != nil {
+            return path;
         }
     }
     nil
