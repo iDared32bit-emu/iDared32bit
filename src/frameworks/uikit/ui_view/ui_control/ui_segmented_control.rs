@@ -274,6 +274,16 @@ pub const CLASSES: ClassExports = objc_classes! {
     set_content(env, this, image, index);
 }
 
+- (())setWidth:(f32)width forSegmentAtIndex:(NSUInteger)index {
+    log!(
+        "[(UISegmentedControl*){:?} setWidth:{} forSegmentAtIndex:{}]",
+        this,
+        width,
+        index
+    );
+    // TODO: Store width and update segment layout.
+}
+
 - (())insertSegmentWithTitle:(id)title // NSString*
                      atIndex:(NSUInteger)index
                     animated:(bool)_animated {
