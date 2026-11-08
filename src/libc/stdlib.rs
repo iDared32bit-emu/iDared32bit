@@ -330,6 +330,26 @@ fn exit(env: &mut Environment, exit_code: i32) {
     env.return_to_app_picker = true;
 }
 
+/// `assert.h`'s failure handler: as on iOS, the game crashes.
+fn __assert_rtn(
+    env: &mut Environment,
+    func: ConstPtr<u8>,
+    file: ConstPtr<u8>,
+    line: i32,
+    expr: ConstPtr<u8>,
+) {
+    let cstr = |env: &Environment, s: ConstPtr<u8>| {
+        String::from_utf8_lossy(env.mem.cstr_at(s)).into_owned()
+    };
+    let expr = cstr(env, expr);
+    let file = cstr(env, file);
+    if func.is_null() {
+        panic!("Assertion failed: ({expr}), file {file}, line {line}.");
+    }
+    let func = cstr(env, func);
+    panic!("Assertion failed: ({expr}), function {func}, file {file}, line {line}.");
+}
+
 fn bsearch(
     env: &mut Environment,
     key: ConstVoidPtr,
@@ -795,6 +815,7 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(setenv(_, _, _)),
     export_c_func!(unsetenv(_)),
     export_c_func!(exit(_)),
+    export_c_func!(__assert_rtn(_, _, _, _)),
     export_c_func!(bsearch(_, _, _, _, _)),
     export_c_func!(strtof(_, _)),
     export_c_func!(strtoul(_, _, _)),
