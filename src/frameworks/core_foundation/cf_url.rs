@@ -21,7 +21,7 @@ use crate::frameworks::core_foundation::cf_string::{
 use crate::frameworks::foundation::ns_string::{
     from_rust_string, get_static_str, to_rust_string, NSUTF8StringEncoding,
 };
-use crate::frameworks::foundation::NSUInteger;
+use crate::frameworks::foundation::{ns_url, NSUInteger};
 use crate::mem::{ConstPtr, MutPtr, Ptr};
 use crate::objc::{id, msg, msg_class, nil, release};
 use crate::Environment;
@@ -54,6 +54,12 @@ pub fn CFURLGetFileSystemRepresentation(
     }
     let buffer_size: NSUInteger = buffer_size.try_into().unwrap();
 
+    if !resolve_against_base {
+        if let Some(relative) = ns_url::relative_path(env, url) {
+            return msg![env; relative getFileSystemRepresentation:buffer
+                                                         maxLength:buffer_size];
+        }
+    }
     msg![env; url getFileSystemRepresentation:buffer
                                     maxLength:buffer_size]
 }

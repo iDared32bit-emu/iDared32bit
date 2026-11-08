@@ -6698,11 +6698,17 @@ int test_CFBundleCopyResourceURLsOfType() {
                                         PATH_BUF_SIZE)) {
     return -2;
   }
-  CFRelease(urls);
   const char *name = strrchr(buf, '/');
   if (name == NULL || strcmp(name, "/test_1x1_black_pixel.jpg") != 0) {
     return -3;
   }
+  // The URLs are relative to the resources folder.
+  if (!CFURLGetFileSystemRepresentation(url, false, (UInt8 *)buf,
+                                        PATH_BUF_SIZE) ||
+      strcmp(buf, "test_1x1_black_pixel.jpg") != 0) {
+    return -5;
+  }
+  CFRelease(urls);
   CFStringRef none = CFStringCreateWithCString(NULL, "nonexistent", 0x0600);
   urls = CFBundleCopyResourceURLsOfType(bundle, none, NULL);
   CFRelease(none);

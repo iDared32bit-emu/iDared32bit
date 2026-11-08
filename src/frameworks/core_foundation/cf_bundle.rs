@@ -15,7 +15,7 @@ use super::cf_url::CFURLRef;
 use super::CFTypeRef;
 use crate::dyld::{export_c_func, ConstantExports, FunctionExports, HostConstant};
 use crate::frameworks::foundation::ns_bundle::NSBundleHostObject;
-use crate::frameworks::foundation::{ns_array, ns_string, NSUInteger};
+use crate::frameworks::foundation::{ns_array, ns_string, ns_url, NSUInteger};
 use crate::objc::{id, msg, msg_class, retain};
 use crate::Environment;
 
@@ -115,12 +115,16 @@ fn CFBundleCopyResourceURLsOfType(
 ) -> CFArrayRef {
     let paths: id = msg![env; bundle pathsForResourcesOfType:resource_type
                                                 inDirectory:sub_dir_name];
+    // As on iOS, the URLs are relative to the resources folder.
+    let base: id = msg![env; bundle resourcePath];
+    let base = ns_string::to_rust_string(env, base).into_owned();
     let count: NSUInteger = msg![env; paths count];
     let urls = (0..count)
         .map(|i| {
             let path: id = msg![env; paths objectAtIndex:i];
-            let url: id = msg_class![env; NSURL fileURLWithPath:path];
-            retain(env, url)
+            let path = ns_string::to_rust_string(env, path);
+            let relative = path.strip_prefix(&format!("{base}/")).unwrap();
+            ns_url::file_url_relative_to(env, relative, &base)
         })
         .collect();
     ns_array::from_vec(env, urls)
