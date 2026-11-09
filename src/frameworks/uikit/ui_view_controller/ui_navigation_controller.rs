@@ -160,6 +160,64 @@ pub const CLASSES: ClassExports = objc_classes! {
     autorelease(env, popped_vc)
 }
 
+- (id)popToViewController:(id)view_controller // UIViewController *
+                 animated:(bool)animated {
+    let popped_vcs = {
+        let stack = &env.objc.borrow::<UINavigationControllerHostObject>(this).navigation_stack;
+        let index = stack.iter().position(|&vc| vc == view_controller);
+        // iOS raises an exception for a controller not on the stack.
+        let index = index.expect("popToViewController: not on the stack");
+        stack[index + 1..].to_vec()
+    };
+    // Only the top controller disappears; the ones below it were hidden.
+    let Some(&top_vc) = popped_vcs.last() else {
+        let popped = ns_array::from_vec(env, vec![]);
+        return autorelease(env, popped);
+    };
+
+    let delegate = env.objc.borrow::<UINavigationControllerHostObject>(this).delegate;
+    let sel: SEL = env.objc.register_host_selector(
+        "navigationController:willShowViewController:animated:".to_string(),
+        &mut env.mem,
+    );
+    let responds: bool = msg![env; delegate respondsToSelector:sel];
+    if responds {
+        () = msg![env; delegate
+            navigationController:this
+            willShowViewController:view_controller
+            animated:animated];
+    }
+
+    () = msg![env; top_vc viewWillDisappear:animated];
+    () = msg![env; view_controller viewWillAppear:animated];
+
+    for &vc in &popped_vcs {
+        let view: id = msg![env; vc view];
+        () = msg![env; view removeFromSuperview];
+    }
+    let new_len = env.objc.borrow::<UINavigationControllerHostObject>(this).navigation_stack.len() - popped_vcs.len();
+    env.objc.borrow_mut::<UINavigationControllerHostObject>(this).navigation_stack.truncate(new_len);
+
+    () = msg![env; top_vc viewDidDisappear:animated];
+    () = msg![env; view_controller viewDidAppear:animated];
+
+    let sel: SEL = env.objc.register_host_selector(
+        "navigationController:didShowViewController:animated:".to_string(),
+        &mut env.mem,
+    );
+    let responds: bool = msg![env; delegate respondsToSelector:sel];
+    if responds {
+        () = msg![env; delegate
+            navigationController:this
+            didShowViewController:view_controller
+            animated:animated];
+    }
+
+    // The stack's retains on the popped controllers pass to the array.
+    let popped = ns_array::from_vec(env, popped_vcs);
+    autorelease(env, popped)
+}
+
 - (id)topViewController {
     if let Some(top_vc) = env.objc.borrow::<UINavigationControllerHostObject>(this).navigation_stack.last() {
         *top_vc
