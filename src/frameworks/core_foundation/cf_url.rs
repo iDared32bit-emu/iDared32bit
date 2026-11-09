@@ -74,10 +74,14 @@ pub fn CFURLCreateFromFileSystemRepresentation(
     assert!(allocator == kCFAllocatorDefault || env.mem.read(allocator).is_system_default()); // unimplemented
 
     let buffer_size: NSUInteger = buffer_size.try_into().unwrap();
+    // The path ends at a NUL: some games pass their whole char[] buffer.
+    let bytes = env.mem.bytes_at(buffer, buffer_size);
+    let length = bytes.iter().position(|&b| b == 0).unwrap_or(bytes.len());
+    let length: NSUInteger = length.try_into().unwrap();
 
     let string: id = msg_class![env; NSString alloc];
     let string: id = msg![env; string initWithBytes:buffer
-                                             length:buffer_size
+                                             length:length
                                            encoding:NSUTF8StringEncoding];
 
     let url: id = msg_class![env; NSURL alloc];
