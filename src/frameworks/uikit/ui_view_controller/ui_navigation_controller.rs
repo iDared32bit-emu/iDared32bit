@@ -6,9 +6,10 @@
 //! `UINavigationController`.
 
 use crate::frameworks::foundation::{ns_array, NSUInteger};
+use crate::frameworks::uikit::ui_application::UIInterfaceOrientation;
 use crate::objc::{
-    autorelease, id, impl_HostObject_with_superclass, msg, nil, objc_classes, release, retain,
-    ClassExports, NSZonePtr, SEL,
+    autorelease, id, impl_HostObject_with_superclass, msg, msg_super, nil, objc_classes, release,
+    retain, ClassExports, NSZonePtr, SEL,
 };
 
 // TODO: navigation bar and toolbar
@@ -165,6 +166,16 @@ pub const CLASSES: ClassExports = objc_classes! {
     } else {
         nil
     }
+}
+
+// Before iOS 6, a navigation controller rotates as its top view controller
+// allows.
+- (bool)shouldAutorotateToInterfaceOrientation:(UIInterfaceOrientation)orientation {
+    let top_vc: id = msg![env; this topViewController];
+    if top_vc == nil {
+        return msg_super![env; this shouldAutorotateToInterfaceOrientation:orientation];
+    }
+    msg![env; top_vc shouldAutorotateToInterfaceOrientation:orientation]
 }
 
 - (id)viewControllers {
