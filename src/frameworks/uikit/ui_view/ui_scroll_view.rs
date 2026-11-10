@@ -66,6 +66,10 @@ pub const CLASSES: ClassExports = objc_classes! {
 - (())setBounces:(id)_bounces {
     // TODO
 }
+// TODO: touches on subviews are never cancelled when a drag starts.
+- (())setCanCancelContentTouches:(bool)can_cancel {
+    todo_objc_setter!(this, can_cancel);
+}
 
 - (bool)scrollEnabled {
     env.objc.borrow::<UIScrollViewHostObject>(this).scroll_enabled
