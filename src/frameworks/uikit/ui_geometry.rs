@@ -6,7 +6,7 @@ use crate::abi::GuestArg;
 use crate::dyld::{export_c_func, FunctionExports};
 use crate::frameworks::core_graphics::{CGFloat, CGPoint, CGRect, CGSize};
 use crate::frameworks::foundation::ns_string;
-use crate::objc::{autorelease, id};
+use crate::objc::{autorelease, id, nil};
 use crate::Environment;
 
 #[derive(Copy, Clone, Debug, Default, PartialEq)]
@@ -39,18 +39,27 @@ impl GuestArg for UIEdgeInsets {
 // Apple's documentation says all of these return zeroes if the input is not
 // well-formed.
 pub fn CGPointFromString(env: &mut Environment, string: id) -> CGPoint {
+    if string == nil {
+        return Default::default();
+    }
     // TODO: avoid copy
     ns_string::to_rust_string(env, string)
         .parse()
         .unwrap_or_default()
 }
 pub fn CGSizeFromString(env: &mut Environment, string: id) -> CGSize {
+    if string == nil {
+        return Default::default();
+    }
     // TODO: avoid copy
     ns_string::to_rust_string(env, string)
         .parse()
         .unwrap_or_default()
 }
 pub fn CGRectFromString(env: &mut Environment, string: id) -> CGRect {
+    if string == nil {
+        return Default::default();
+    }
     // TODO: avoid copy
     ns_string::to_rust_string(env, string)
         .parse()
