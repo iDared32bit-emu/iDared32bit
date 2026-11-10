@@ -11,6 +11,7 @@ Compatibility:
 - Fixed wrongly sized or sideways graphics in some landscape games.
 - Fixed a crash in some games when going back to an earlier screen.
 - Fixed missing sound effects in some games.
+- Fixed crashes when starting some games.
 
 ## v1.5.2 (2026-11-07)
 

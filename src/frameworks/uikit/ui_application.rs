@@ -345,8 +345,11 @@ pub(super) fn UIApplicationMain(
             if res != nil {
                 let nib: id = msg_class![env; UINib nibWithNibName:ns_main_nib_filename bundle:nil];
                 release(env, ns_main_nib_filename);
-                let _: id = msg![env; nib instantiateWithOwner:ui_application
-                                               options:nil];
+                let objects: id = msg![env; nib instantiateWithOwner:ui_application
+                                                      options:nil];
+                // The main nib's top-level objects live as long as the app,
+                // including ones only connected to non-retaining outlets.
+                retain(env, objects);
             } else {
                 log!(
                     "Warning: couldn't load main nib file {:?}",
