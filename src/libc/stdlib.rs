@@ -6,7 +6,9 @@
 //! `stdlib.h`
 
 use crate::abi::{CallFromHost, GuestFunction};
-use crate::dyld::{export_c_func, export_c_func_aliased, FunctionExports};
+use crate::dyld::{
+    export_c_func, export_c_func_aliased, ConstantExports, FunctionExports, HostConstant,
+};
 use crate::fs::{resolve_path, GuestPath};
 use crate::libc::clocale::{setlocale, LC_CTYPE};
 use crate::libc::errno::{set_errno, EEXIST, EINVAL, ENAMETOOLONG, ENOTDIR};
@@ -348,6 +350,12 @@ fn __assert_rtn(
     }
     let func = cstr(env, func);
     panic!("Assertion failed: ({expr}), function {func}, file {file}, line {line}.");
+}
+
+/// Called by code built with stack protection when the canary in
+/// `__stack_chk_guard` was overwritten: as on iOS, the game crashes.
+fn __stack_chk_fail(_env: &mut Environment) {
+    panic!("Stack buffer overflow detected (__stack_chk_fail).");
 }
 
 fn bsearch(
@@ -791,7 +799,15 @@ fn basename(env: &mut Environment, path: ConstPtr<u8>) -> MutPtr<u8> {
     buf
 }
 
+pub const CONSTANTS: ConstantExports = &[(
+    "___stack_chk_guard",
+    // The canary that stack-protected code puts in each stack frame. iOS
+    // picks a random one; any nonzero value works.
+    HostConstant::Custom(|env| env.mem.alloc_and_write(0x00ff0a0du32).cast().cast_const()),
+)];
+
 pub const FUNCTIONS: FunctionExports = &[
+    export_c_func!(__stack_chk_fail()),
     export_c_func!(malloc(_)),
     export_c_func!(malloc_size(_)),
     export_c_func!(calloc(_, _)),
