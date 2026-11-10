@@ -756,6 +756,11 @@ pub const CLASSES: ClassExports = objc_classes! {
     release(env, object);
 }
 
+- (())exchangeObjectAtIndex:(NSUInteger)index1 withObjectAtIndex:(NSUInteger)index2 {
+    let array = &mut env.objc.borrow_mut::<ArrayHostObject>(this).array;
+    array.swap(index1 as usize, index2 as usize);
+}
+
 - (())removeLastObject {
     // Apple's docs say this raises on an empty array, but it does nothing.
     if let Some(object) = env.objc.borrow_mut::<ArrayHostObject>(this).array.pop() {
