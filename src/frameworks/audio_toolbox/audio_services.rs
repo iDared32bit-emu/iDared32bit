@@ -141,7 +141,9 @@ fn AudioServicesGetProperty(
 
 fn AudioServicesPlaySystemSound(env: &mut Environment, sys_sound_id: SystemSoundID) {
     if sys_sound_id == kSystemSoundID_Vibrate {
-        log!("TODO: vibration (AudioServicesPlaySystemSound)");
+        if let Some(window) = env.window.as_mut() {
+            window.vibrate();
+        }
     } else {
         let (state, context) =
             State::get_with_context(&mut env.framework_state, &mut env.openal_manager);

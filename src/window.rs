@@ -273,6 +273,9 @@ pub struct Window {
     device_orientation: DeviceOrientation,
     controller_ctx: sdl2::GameControllerSubsystem,
     controllers: Vec<sdl2::controller::GameController>,
+    /// The device's own vibrator, opened on first use (see [Self::vibrate]).
+    #[cfg_attr(target_os = "ios", allow(dead_code))]
+    device_vibrator: Option<Option<DeviceVibrator>>,
     dpad_state: DpadState,
     stick_active: bool,
     _sensor_ctx: sdl2::SensorSubsystem,
@@ -450,6 +453,7 @@ impl Window {
             device_orientation,
             controller_ctx,
             controllers: Vec::new(),
+            device_vibrator: None,
             dpad_state: DpadState {
                 left: false,
                 right: false,
@@ -1124,6 +1128,37 @@ impl Window {
         self.high_priority_event
             .take()
             .or_else(|| self.event_queue.pop_front())
+    }
+
+    /// Vibrates, as `kSystemSoundID_Vibrate` does: the device itself where
+    /// it can, and any connected controller.
+    pub fn vibrate(&mut self) {
+        // About as long as an iPhone's.
+        const DURATION_MS: u32 = 400;
+        for controller in &mut self.controllers {
+            // Not every controller can rumble.
+            let _ = controller.set_rumble(0xffff, 0xffff, DURATION_MS);
+        }
+
+        #[cfg(target_os = "ios")]
+        {
+            #[link(name = "AudioToolbox", kind = "framework")]
+            extern "C" {
+                fn AudioServicesPlaySystemSound(sound_id: u32);
+            }
+            // kSystemSoundID_Vibrate
+            unsafe { AudioServicesPlaySystemSound(0xfff) };
+        }
+        #[cfg(not(target_os = "ios"))]
+        {
+            let sdl_ctx = &self._sdl_ctx;
+            let vibrator = self
+                .device_vibrator
+                .get_or_insert_with(|| DeviceVibrator::open(sdl_ctx));
+            if let Some(vibrator) = vibrator {
+                vibrator.rumble(DURATION_MS);
+            }
+        }
     }
 
     fn controller_added(&mut self, joystick_idx: u32) {
@@ -2238,4 +2273,47 @@ pub fn get_preferred_country_codes(env: &mut Environment) -> Vec<String> {
             .filter_map(|loc| loc.country)
             .collect()
     })
+}
+
+/// A phone's own vibrator, which SDL lists as a haptic device on Android.
+/// (iOS's is used directly.)
+#[cfg_attr(target_os = "ios", allow(dead_code))]
+struct DeviceVibrator {
+    _haptic_ctx: sdl2::HapticSubsystem,
+    haptic: *mut sdl2::sys::SDL_Haptic,
+}
+#[cfg_attr(target_os = "ios", allow(dead_code))]
+impl DeviceVibrator {
+    /// SDL's name for it on Android.
+    const NAME: &'static [u8] = b"VIBRATOR_SERVICE";
+
+    fn open(sdl_ctx: &sdl2::Sdl) -> Option<DeviceVibrator> {
+        use sdl2::sys;
+        let haptic_ctx = sdl_ctx.haptic().ok()?;
+        let index = (0..unsafe { sys::SDL_NumHaptics() }).find(|&i| {
+            let name = unsafe { sys::SDL_HapticName(i) };
+            !name.is_null() && unsafe { std::ffi::CStr::from_ptr(name) }.to_bytes() == Self::NAME
+        })?;
+        let haptic = unsafe { sys::SDL_HapticOpen(index) };
+        if haptic.is_null() {
+            return None;
+        }
+        if unsafe { sys::SDL_HapticRumbleInit(haptic) } != 0 {
+            unsafe { sys::SDL_HapticClose(haptic) };
+            return None;
+        }
+        Some(DeviceVibrator {
+            _haptic_ctx: haptic_ctx,
+            haptic,
+        })
+    }
+
+    fn rumble(&mut self, duration_ms: u32) {
+        unsafe { sdl2::sys::SDL_HapticRumblePlay(self.haptic, 1.0, duration_ms) };
+    }
+}
+impl Drop for DeviceVibrator {
+    fn drop(&mut self) {
+        unsafe { sdl2::sys::SDL_HapticClose(self.haptic) };
+    }
 }

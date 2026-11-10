@@ -4,6 +4,10 @@ iDared 32bit is based on [touchHLE](https://touchhle.org/). This file lists only
 
 ## NEXT
 
+Usability:
+
+- Games that vibrate the phone now do, and rumble a connected controller too.
+
 Compatibility:
 
 - Fixed crashes when starting some games that look up their own files.
