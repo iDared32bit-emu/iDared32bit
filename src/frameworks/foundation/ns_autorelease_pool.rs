@@ -22,7 +22,8 @@ impl ThreadLocalState {
 struct NSAutoreleasePoolHostObject {
     original_thread: ThreadId,
     /// This is allowed to contain duplicates, which get released several times!
-    objects: Vec<id>,
+    /// Each has its serial number (see [crate::objc::ObjC::object_serial]).
+    objects: Vec<(id, Option<u64>)>,
 }
 impl HostObject for NSAutoreleasePoolHostObject {}
 
@@ -66,7 +67,8 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (())addObject:(id)obj {
-    env.objc.borrow_mut::<NSAutoreleasePoolHostObject>(this).objects.push(obj);
+    let serial = env.objc.object_serial(obj);
+    env.objc.borrow_mut::<NSAutoreleasePoolHostObject>(this).objects.push((obj, serial));
 }
 
 - (id)retain {
@@ -122,7 +124,14 @@ pub const CLASSES: ClassExports = objc_classes! {
         let host_obj: &mut NSAutoreleasePoolHostObject = env.objc.borrow_mut(pool);
         let objects = std::mem::take(&mut host_obj.objects);
         env.objc.dealloc_object(pool, &mut env.mem);
-        for object in objects {
+        for (object, serial) in objects {
+            // A game that releases an object it doesn't own can free it while
+            // it's still here. On iOS the freed object usually still answers
+            // the release; here its address may hold another object by now.
+            if serial.is_some() && env.objc.object_serial(object) != serial {
+                log!("Warning: {:?} was freed before its autorelease pool drained (released too many times by the game), skipping.", object);
+                continue;
+            }
             release(env, object);
         }
     }

@@ -63,6 +63,7 @@ pub const nil: id = Ptr::null();
 pub(super) struct HostObjectEntry {
     host_object: Box<dyn AnyHostObject>,
     refcount: Option<NonZeroU32>,
+    serial: u64,
 }
 
 /// Type for host objects.
@@ -169,11 +170,13 @@ impl super::ObjC {
         let ptr: MutPtr<objc_object> = mem.alloc(instance_size).cast();
         mem.write(ptr, guest_object);
         assert!(!self.objects.contains_key(&ptr));
+        let serial = self.take_object_serial();
         self.objects.insert(
             ptr,
             HostObjectEntry {
                 host_object,
                 refcount,
+                serial,
             },
         );
         ptr
@@ -225,13 +228,26 @@ impl super::ObjC {
         host_object: Box<dyn AnyHostObject>,
     ) {
         assert!(!self.objects.contains_key(&guest_object));
+        let serial = self.take_object_serial();
         self.objects.insert(
             guest_object,
             HostObjectEntry {
                 host_object,
                 refcount: None,
+                serial,
             },
         );
+    }
+
+    fn take_object_serial(&mut self) -> u64 {
+        self.next_object_serial += 1;
+        self.next_object_serial
+    }
+
+    /// A number that identifies this allocation of an object, if it exists:
+    /// another object allocated later at the same address gets another one.
+    pub fn object_serial(&self, object: id) -> Option<u64> {
+        self.objects.get(&object).map(|entry| entry.serial)
     }
 
     /// Get a reference to a host object, if the object exists.
@@ -344,6 +360,7 @@ impl super::ObjC {
         let HostObjectEntry {
             host_object,
             refcount,
+            ..
         } = self.objects.remove(&object).unwrap();
 
         if let Some(refcount) = refcount {

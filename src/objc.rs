@@ -155,6 +155,9 @@ pub struct ObjC {
     /// Type information isn't part of the `objc_msgSend` ABI, so an alternative
     /// channel is needed.
     message_type_info: Option<(std::any::TypeId, &'static str)>,
+
+    /// Numbers each object allocated, so a reused address can be told apart.
+    next_object_serial: u64,
 }
 
 impl ObjC {
@@ -169,6 +172,7 @@ impl ObjC {
             metaclass_classes: HashMap::new(),
             cached_guest_functions: HashMap::new(),
             message_type_info: None,
+            next_object_serial: 0,
         }
     }
 }
