@@ -15,8 +15,14 @@ use crate::dyld::{export_c_func, ConstantExports, FunctionExports, HostConstant}
 use crate::mem::SafeRead;
 use crate::Environment;
 
+/// The strings are like "{1, 2}" or "{{1, 2}, {3, 4}}", but any spaces are
+/// allowed: games write "{1,2}" too.
+fn without_spaces(s: &str) -> String {
+    s.chars().filter(|c| !c.is_whitespace()).collect()
+}
+
 fn parse_tuple(s: &str) -> Result<(f32, f32), ()> {
-    let (a, b) = s.split_once(", ").ok_or(())?;
+    let (a, b) = s.split_once(',').ok_or(())?;
     Ok((a.parse().map_err(|_| ())?, b.parse().map_err(|_| ())?))
 }
 
@@ -45,6 +51,7 @@ impl GuestArg for CGPoint {
 impl std::str::FromStr for CGPoint {
     type Err = ();
     fn from_str(s: &str) -> Result<CGPoint, ()> {
+        let s = &without_spaces(s);
         let s = s.strip_prefix('{').ok_or(())?.strip_suffix('}').ok_or(())?;
         let (x, y) = parse_tuple(s)?;
         Ok(CGPoint { x, y })
@@ -120,6 +127,7 @@ impl GuestArg for CGSize {
 impl std::str::FromStr for CGSize {
     type Err = ();
     fn from_str(s: &str) -> Result<CGSize, ()> {
+        let s = &without_spaces(s);
         let s = s.strip_prefix('{').ok_or(())?.strip_suffix('}').ok_or(())?;
         let (w, h) = parse_tuple(s)?;
         Ok(CGSize {
@@ -201,12 +209,13 @@ impl GuestArg for CGRect {
 impl std::str::FromStr for CGRect {
     type Err = ();
     fn from_str(s: &str) -> Result<CGRect, ()> {
+        let s = &without_spaces(s);
         let s = s
             .strip_prefix("{{")
             .ok_or(())?
             .strip_suffix("}}")
             .ok_or(())?;
-        let (a, b) = s.split_once("}, {").ok_or(())?;
+        let (a, b) = s.split_once("},{").ok_or(())?;
         let (x, y) = parse_tuple(a)?;
         let (width, height) = parse_tuple(b)?;
         Ok(CGRect {
@@ -447,3 +456,27 @@ pub const CONSTANTS: ConstantExports = &[
         HostConstant::Custom(|env| env.mem.alloc_and_write(CGRectNull).cast().cast_const()),
     ),
 ];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_with_or_without_spaces() {
+        let point = CGPoint { x: 71.0, y: 20.5 };
+        assert_eq!("{71,20.5}".parse(), Ok(point));
+        assert_eq!("{71, 20.5}".parse(), Ok(point));
+        assert_eq!(" { 71 ,20.5 } ".parse(), Ok(point));
+        assert_eq!(point.to_string().parse(), Ok(point));
+        let rect = CGRect {
+            origin: CGPoint { x: 1.0, y: 2.0 },
+            size: CGSize {
+                width: 3.0,
+                height: 4.0,
+            },
+        };
+        assert_eq!("{{1,2},{3,4}}".parse(), Ok(rect));
+        assert_eq!(rect.to_string().parse(), Ok(rect));
+        assert_eq!("{1;2}".parse::<CGPoint>(), Err(()));
+    }
+}
