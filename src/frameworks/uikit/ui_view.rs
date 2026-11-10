@@ -333,6 +333,9 @@ pub const CLASSES: ClassExports = objc_classes! {
 
     // TODO: What if there's interleaved UIView animations and CATransactions?
     let animations = ca_transaction::ThreadLocalState::get_current_transaction(env).unwrap().get_animations();
+    // A view that isn't in a window isn't drawn, so its changes take effect
+    // at once, as on iOS, rather than wait for an animation that never runs.
+    let animations: Vec<_> = animations.into_iter().filter(|&(layer, _)| layer_is_in_window(env, layer)).collect();
 
     let delegate: id = msg_class![env; CATransaction valueForKey:(get_static_str(env, touchHLE_kCATransactionAnimationDelegate))];
     if animations.is_empty() && delegate == nil {
@@ -375,6 +378,12 @@ pub const CLASSES: ClassExports = objc_classes! {
             }
             let total_animation_count = animations.len() as u32;
             () = msg![env; animation_delegate setTotalAnimationCount:total_animation_count];
+            if total_animation_count == 0 {
+                // Nothing to wait for: tell the delegate on the next run
+                // loop pass, as if it had all finished.
+                let sel = env.objc.lookup_selector("_touchHLE_finishWithoutAnimations").unwrap();
+                () = msg![env; animation_delegate performSelector:sel withObject:nil afterDelay:0.0f64];
+            }
             animation_delegate
         };
         let delay: id = msg_class![env; CATransaction valueForKey:(get_static_str(env, touchHLE_kCATransactionAnimationDelay))];
@@ -1166,6 +1175,13 @@ pub const CLASSES: ClassExports = objc_classes! {
     env.objc.dealloc_object(this, &mut env.mem)
 }
 
+- (())_touchHLE_finishWithoutAnimations {
+    // As if there were one animation, which finished at once.
+    () = msg![env; this setTotalAnimationCount:1u32];
+    () = msg![env; this animationDidStart:nil];
+    () = msg![env; this animationDidStop:nil finished:true];
+}
+
 // CAAnimationDelegate protocol implementation
 - (())animationDidStart:(id)animation { // CAAnimation*
     let UIViewAnimationDelegateHostObject {
@@ -1214,6 +1230,19 @@ pub const CLASSES: ClassExports = objc_classes! {
 @end
 
 };
+
+/// Whether a layer is in a window's layer tree, and so gets drawn.
+fn layer_is_in_window(env: &mut Environment, mut layer: id) -> bool {
+    let window_class = env.objc.get_known_class("UIWindow", &mut env.mem);
+    while layer != nil {
+        let delegate: id = msg![env; layer delegate];
+        if delegate != nil && msg![env; delegate isKindOfClass:window_class] {
+            return true;
+        }
+        layer = msg![env; layer superlayer];
+    }
+    false
+}
 
 /// When a view changes size, its subviews' flexible margins and sizes take up
 /// the difference, shared in proportion to their current sizes (as Apple's

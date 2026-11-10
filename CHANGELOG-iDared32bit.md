@@ -13,6 +13,7 @@ Compatibility:
 - Fixed missing sound effects in some games.
 - Fixed crashes when starting some games.
 - Fixed sliders not being drawn or not working in some games.
+- Fixed some games getting stuck on a blank screen after an animation.
 
 ## v1.5.2 (2026-11-07)
 
