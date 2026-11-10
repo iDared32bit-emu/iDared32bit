@@ -548,9 +548,11 @@ pub const CLASSES: ClassExports = objc_classes! {
     if view_tag == tag {
         return this;
     }
-    for view in subviews {
-        if env.objc.borrow::<UIViewHostObject>(*view).tag == tag {
-            return *view;
+    // All the descendants are searched, depth-first.
+    for view in subviews.clone() {
+        let found: id = msg![env; view viewWithTag:tag];
+        if found != nil {
+            return found;
         }
     }
     nil

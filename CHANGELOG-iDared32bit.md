@@ -15,6 +15,7 @@ Compatibility:
 - Fixed sliders not being drawn or not working in some games.
 - Fixed some games getting stuck on a blank screen after an animation.
 - Fixed crashes in some games that release objects too many times.
+- Fixed taps landing in the wrong place in some games.
 
 ## v1.5.2 (2026-11-07)
 
