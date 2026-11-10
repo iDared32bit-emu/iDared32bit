@@ -27,6 +27,7 @@ use crate::objc::{
 use crate::Environment;
 
 pub mod ui_navigation_controller;
+pub mod ui_tab_bar_controller;
 
 #[derive(Default)]
 struct UIViewControllerHostObject {
@@ -51,6 +52,10 @@ struct UIViewControllerHostObject {
     editing: bool,
     /// Made when first asked for. Retained.
     edit_button_item: id,
+    /// `UITabBarItem*`, made when first asked for. Retained.
+    tab_bar_item: id,
+    /// The tab bar controller this one is a tab of. Weak.
+    tab_bar_controller: id,
 }
 impl HostObject for UIViewControllerHostObject {}
 
@@ -87,6 +92,12 @@ pub const CLASSES: ClassExports = objc_classes! {
 
     () = msg![env; this setView:view];
 
+    let key = get_static_str(env, "UITabBarItem");
+    if msg![env; coder containsValueForKey:key] {
+        let item: id = msg![env; coder decodeObjectForKey:key];
+        () = msg![env; this setTabBarItem:item];
+    }
+
     this
 }
 
@@ -97,10 +108,12 @@ pub const CLASSES: ClassExports = objc_classes! {
         bundle,
         modal_view_controller,
         edit_button_item,
+        tab_bar_item,
         ..
     } = env.objc.borrow(this);
     release(env, modal_view_controller);
     release(env, edit_button_item);
+    release(env, tab_bar_item);
 
     if view != nil {
         set_view_controller(env, view, nil);
@@ -260,6 +273,25 @@ pub const CLASSES: ClassExports = objc_classes! {
 - (id)modalViewController {
     env.objc.borrow::<UIViewControllerHostObject>(this).modal_view_controller
 }
+- (id)tabBarItem {
+    let item = env.objc.borrow::<UIViewControllerHostObject>(this).tab_bar_item;
+    if item != nil {
+        return item;
+    }
+    let item: id = msg_class![env; UITabBarItem new];
+    env.objc.borrow_mut::<UIViewControllerHostObject>(this).tab_bar_item = item;
+    item
+}
+- (())setTabBarItem:(id)item { // UITabBarItem*
+    retain(env, item);
+    let host_object = env.objc.borrow_mut::<UIViewControllerHostObject>(this);
+    let old = std::mem::replace(&mut host_object.tab_bar_item, item);
+    release(env, old);
+}
+- (id)tabBarController {
+    env.objc.borrow::<UIViewControllerHostObject>(this).tab_bar_controller
+}
+
 // TODO: also the navigation controller for the controllers it pushes.
 - (id)parentViewController {
     env.objc.borrow::<UIViewControllerHostObject>(this).parent_view_controller
