@@ -16,6 +16,7 @@ Compatibility:
 - Fixed some games getting stuck on a blank screen after an animation.
 - Fixed crashes in some games that release objects too many times.
 - Fixed taps landing in the wrong place in some games.
+- Fixed crashes in some games that slide between screens.
 
 ## v1.5.2 (2026-11-07)
 

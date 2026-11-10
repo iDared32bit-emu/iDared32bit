@@ -10,6 +10,10 @@
 //! diverges wildly from what the real iPhone OS does.
 #![allow(clippy::zero_ptr)] // alas, as you know, opengl
 
+use super::ca_animation::{
+    get_transition, kCATransitionFromBottom, kCATransitionFromRight, kCATransitionFromTop,
+    kCATransitionMoveIn, kCATransitionPush, kCATransitionReveal,
+};
 use super::ca_eagl_layer::find_fullscreen_eagl_layer;
 use super::ca_layer::{CALayerHostObject, ContentsGravity};
 use crate::frameworks::core_animation::animation;
@@ -620,10 +624,13 @@ unsafe fn composite_layer_recursive(
     // It might need to be reworked in the future into a guest presentationLayer
     let host_obj = animation_state.create_presentation_layer(env, layer);
 
-    // A layer being hidden by a fade transition still shows the old picture.
-    if host_obj.hidden && host_obj.fade_transition.is_none() {
+    // A layer being hidden by a transition still shows the old picture.
+    if host_obj.hidden && host_obj.transition.is_none() {
         return;
     }
+    let motion = host_obj
+        .transition
+        .map(|(animation, progress)| transition_motion(env, animation, progress, host_obj.bounds));
 
     let window = env.window.as_mut().unwrap();
     let mut gles = window.make_internal_gl_ctx_current();
@@ -636,6 +643,17 @@ unsafe fn composite_layer_recursive(
         let cumulative_transform =
             <Matrix<4> as From<_>>::from(host_obj.superlayer_to_layer_transform())
                 .multiply(&cumulative_transform);
+        // A transition moving the new picture moves the layer and its
+        // sublayers; the clip and the old picture stay where the layer is.
+        let base_transform = cumulative_transform;
+        let cumulative_transform = match motion {
+            Some(TransitionMotion {
+                new_offset: (x, y), ..
+            }) if (x, y) != (0.0, 0.0) => {
+                Matrix::translate_3d(x, y, 0.0).multiply(&cumulative_transform)
+            }
+            _ => cumulative_transform,
+        };
 
         // Reposition and scale the unit quad (see ARRAY_BUFFER binding)
         // so it will have the right size in this layer's co-ordinate space.
@@ -647,16 +665,18 @@ unsafe fn composite_layer_recursive(
                 .multiply(&cumulative_transform),
         );
 
-        cumulative_transform
+        (cumulative_transform, base_transform)
     };
+    let (cumulative_transform, base_transform) = cumulative_transform;
 
-    // A layer that masks to its bounds clips itself and its sublayers.
-    let clip = if host_obj.masks_to_bounds {
+    // A layer that masks to its bounds clips itself and its sublayers, and
+    // so does one with a moving transition.
+    let clip = if host_obj.masks_to_bounds || motion.is_some_and(|m| m.clips) {
         let clip_scale = env.framework_state.core_animation.composition.clip_scale;
         Some(bounds_clip(
             clip_scale,
             host_obj.bounds,
-            &cumulative_transform,
+            &base_transform,
             clip,
         ))
     } else {
@@ -669,15 +689,41 @@ unsafe fn composite_layer_recursive(
 
     if host_obj.hidden {
         std::mem::drop(gles);
-        let (animation, progress) = host_obj.fade_transition.unwrap();
+        let animation = host_obj.transition.unwrap().0;
         draw_transition_snapshot(
             env,
             animation,
-            progress,
+            motion.unwrap(),
             host_obj.bounds,
-            cumulative_transform,
+            base_transform,
         );
         return;
+    }
+    // The old picture goes under the new one when that moves in over it.
+    if let Some(
+        motion @ TransitionMotion {
+            old_on_top: false, ..
+        },
+    ) = motion
+    {
+        std::mem::drop(gles);
+        let animation = host_obj.transition.unwrap().0;
+        draw_transition_snapshot(env, animation, motion, host_obj.bounds, base_transform);
+        gles = env.window.as_mut().unwrap().make_internal_gl_ctx_current();
+        gles.MatrixMode(gles11::MODELVIEW);
+        load_matrix(
+            gles.as_mut(),
+            Matrix::<4>::from(&Matrix::scale_2d(
+                host_obj.bounds.size.width,
+                host_obj.bounds.size.height,
+            ))
+            .multiply(&Matrix::translate_3d(
+                host_obj.bounds.origin.x,
+                host_obj.bounds.origin.y,
+                0.0,
+            ))
+            .multiply(&cumulative_transform),
+        );
     }
 
     // Draw background color, if any
@@ -937,25 +983,77 @@ unsafe fn composite_layer_recursive(
     }
 
     // The transition covers the sublayers too.
-    if let Some((animation, progress)) = host_obj.fade_transition {
+    if let Some(
+        motion @ TransitionMotion {
+            old_on_top: true, ..
+        },
+    ) = motion
+    {
+        let animation = host_obj.transition.unwrap().0;
         let window = env.window.as_mut().unwrap();
         set_clip(window.make_internal_gl_ctx_current().as_mut(), clip);
-        draw_transition_snapshot(
-            env,
-            animation,
-            progress,
-            host_obj.bounds,
-            cumulative_transform,
-        );
+        draw_transition_snapshot(env, animation, motion, host_obj.bounds, base_transform);
     }
 }
 
-/// Fades out the picture from before a transition over the layer: drawing it
-/// at `1 - progress` over the new picture crossfades between them.
-unsafe fn draw_transition_snapshot(
+/// How a transition draws the old picture and the new one, in the layer's
+/// co-ordinates.
+#[derive(Clone, Copy)]
+struct TransitionMotion {
+    new_offset: (f32, f32),
+    old_offset: (f32, f32),
+    old_alpha: f32,
+    /// Whether the old picture is drawn over the new one.
+    old_on_top: bool,
+    /// Whether the pictures are clipped to the layer's bounds.
+    clips: bool,
+}
+
+fn transition_motion(
     env: &mut Environment,
     animation: id,
     progress: f32,
+    bounds: CGRect,
+) -> TransitionMotion {
+    let (transition_type, subtype, _, _) = get_transition(env, animation).unwrap();
+    // The direction the new picture comes from; left is the default.
+    let (dx, dy) = match subtype.as_deref() {
+        Some(s) if s == kCATransitionFromRight => (1.0, 0.0),
+        Some(s) if s == kCATransitionFromTop => (0.0, -1.0),
+        Some(s) if s == kCATransitionFromBottom => (0.0, 1.0),
+        _ => (-1.0, 0.0),
+    };
+    let (w, h) = (bounds.size.width, bounds.size.height);
+    let coming_in = (dx * w * (1.0 - progress), dy * h * (1.0 - progress));
+    let going_out = (-dx * w * progress, -dy * h * progress);
+    let moving = |new_offset, old_offset, old_on_top| TransitionMotion {
+        new_offset,
+        old_offset,
+        old_alpha: 1.0,
+        old_on_top,
+        clips: true,
+    };
+    match transition_type.as_str() {
+        t if t == kCATransitionPush => moving(coming_in, going_out, true),
+        t if t == kCATransitionMoveIn => moving(coming_in, (0.0, 0.0), false),
+        t if t == kCATransitionReveal => moving((0.0, 0.0), going_out, true),
+        // Fade: the old picture fades out over the new one.
+        _ => TransitionMotion {
+            new_offset: (0.0, 0.0),
+            old_offset: (0.0, 0.0),
+            old_alpha: 1.0 - progress,
+            old_on_top: true,
+            clips: false,
+        },
+    }
+}
+
+/// Draws the picture from before a transition where the layer is, moved and
+/// faded as `motion` says.
+unsafe fn draw_transition_snapshot(
+    env: &mut Environment,
+    animation: id,
+    motion: TransitionMotion,
     bounds: CGRect,
     cumulative_transform: Matrix<4>,
 ) {
@@ -989,14 +1087,19 @@ unsafe fn draw_transition_snapshot(
     let window = env.window.as_mut().unwrap();
     let mut gles = window.make_internal_gl_ctx_current();
     gles.MatrixMode(gles11::MODELVIEW);
+    let (ox, oy) = motion.old_offset;
     load_matrix(
         gles.as_mut(),
         Matrix::<4>::from(&Matrix::scale_2d(bounds.size.width, bounds.size.height))
-            .multiply(&Matrix::translate_3d(bounds.origin.x, bounds.origin.y, 0.0))
+            .multiply(&Matrix::translate_3d(
+                bounds.origin.x + ox,
+                bounds.origin.y + oy,
+                0.0,
+            ))
             .multiply(&cumulative_transform),
     );
 
-    let alpha = 1.0 - progress;
+    let alpha = motion.old_alpha;
     gles.Color4f(alpha, alpha, alpha, alpha);
     gles.Enable(gles11::BLEND);
     gles.BlendFunc(gles11::ONE, gles11::ONE_MINUS_SRC_ALPHA);

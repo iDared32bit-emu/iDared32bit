@@ -22,7 +22,8 @@ use crate::frameworks::core_animation::ca_animation::{
     get_animation_start_time, get_animation_stopped, get_group_animations, get_keyframes,
     get_transition, kCAAnimationCubic, kCAAnimationCubicPaced, kCAAnimationDiscrete,
     kCAAnimationPaced, kCAFillModeBackwards, kCAFillModeBoth, kCAFillModeForwards,
-    kCATransitionFade, CAMediaTimingFillMode, Keyframes,
+    kCATransitionFade, kCATransitionMoveIn, kCATransitionPush, kCATransitionReveal,
+    CAMediaTimingFillMode, Keyframes,
 };
 use crate::frameworks::core_animation::ca_layer::remove_anonymous_animation;
 use crate::frameworks::core_animation::ca_transform_3d::CATransform3D;
@@ -222,12 +223,19 @@ fn apply_animation(
         return;
     }
 
-    if let Some((transition_type, start, end)) = get_transition(env, animation) {
-        if transition_type != kCATransitionFade {
+    if let Some((transition_type, _, start, end)) = get_transition(env, animation) {
+        if ![
+            kCATransitionFade,
+            kCATransitionPush,
+            kCATransitionMoveIn,
+            kCATransitionReveal,
+        ]
+        .contains(&transition_type.as_str())
+        {
             unimplemented!("CATransition type {:?} isn't implemented", transition_type);
         }
-        // The compositor fades the old picture out over the new one.
-        presentation.fade_transition = Some((animation, start + (end - start) * amount));
+        // The compositor moves or fades the old picture and the new one.
+        presentation.transition = Some((animation, start + (end - start) * amount));
         return;
     }
 

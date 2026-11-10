@@ -74,9 +74,9 @@ pub(super) struct CALayerHostObject {
     pub(super) gles_texture_contents: id,
     pub(super) animations: HashMap<String, id>, // CAAnimation*
     pub(super) anonymous_animations: HashSet<id>, // CAAnimation*
-    /// Presentation layer only: a fade transition and how far it's gone (0
-    /// to 1), for the compositor.
-    pub(super) fade_transition: Option<(id, f32)>,
+    /// Presentation layer only: a transition and how far it's gone (0 to 1),
+    /// for the compositor.
+    pub(super) transition: Option<(id, f32)>,
     /// Where `contents` goes in the bounds.
     pub(super) contents_gravity: ContentsGravity,
     /// Whether the contents and sublayers are clipped to the bounds.
@@ -229,7 +229,7 @@ pub const CLASSES: ClassExports = objc_classes! {
         gles_texture_contents: nil,
         animations: HashMap::new(),
         anonymous_animations: HashSet::new(),
-        fade_transition: None,
+        transition: None,
         contents_gravity: ContentsGravity::Resize,
         masks_to_bounds: false,
     });

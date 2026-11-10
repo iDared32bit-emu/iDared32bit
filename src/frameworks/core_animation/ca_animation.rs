@@ -883,7 +883,11 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 /// A transition's type and its start and end progress, or [None] if the
 /// animation isn't a transition.
-pub fn get_transition(env: &mut Environment, animation: id) -> Option<(String, f32, f32)> {
+/// A transition's type, subtype (if any), and start and end progress.
+pub fn get_transition(
+    env: &mut Environment,
+    animation: id,
+) -> Option<(String, Option<String>, f32, f32)> {
     let class = env.objc.get_known_class("CATransition", &mut env.mem);
     let animation_class: Class = msg![env; animation class];
     if !env.objc.class_is_subclass_of(animation_class, class) {
@@ -893,6 +897,7 @@ pub fn get_transition(env: &mut Environment, animation: id) -> Option<(String, f
         start_progress,
         end_progress,
         transition_type,
+        transition_subtype,
         ..
     } = env.objc.borrow(animation);
     // Fade is the documented default.
@@ -901,7 +906,14 @@ pub fn get_transition(env: &mut Environment, animation: id) -> Option<(String, f
     } else {
         to_rust_string(env, transition_type).into_owned()
     };
-    Some((transition_type, start_progress, end_progress))
+    let transition_subtype =
+        (transition_subtype != nil).then(|| to_rust_string(env, transition_subtype).into_owned());
+    Some((
+        transition_type,
+        transition_subtype,
+        start_progress,
+        end_progress,
+    ))
 }
 
 pub fn get_animation_start_time(
