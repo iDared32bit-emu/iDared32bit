@@ -24,6 +24,7 @@ use crate::objc::messages::ThreadInitializer;
 use crate::MutexId;
 use std::collections::HashMap;
 
+mod blocks;
 mod classes;
 mod messages;
 mod methods;
@@ -44,8 +45,7 @@ pub use objects::{
 pub use properties::todo_objc_setter;
 pub use selectors::{selector, SEL};
 
-use crate::mem::{ConstVoidPtr, MutPtr};
-use crate::Environment;
+use crate::mem::MutPtr;
 use classes::{
     class_copyPropertyList, class_getInstanceMethod, class_getInstanceSize,
     class_getMethodImplementation, class_getProperty, class_getSuperclass, class_replaceMethod,
@@ -174,9 +174,9 @@ impl ObjC {
 pub const DYLIB: HostDylib = HostDylib {
     path: "/usr/lib/libobjc.A.dylib",
     aliases: &["/usr/lib/libobjc.dylib"],
-    class_exports: &[],
-    constant_exports: &[CONSTANTS],
-    function_exports: &[FUNCTIONS],
+    class_exports: &[blocks::CLASSES],
+    constant_exports: &[CONSTANTS, blocks::CONSTANTS],
+    function_exports: &[FUNCTIONS, blocks::FUNCTIONS],
 };
 
 const CONSTANTS: ConstantExports = &[
@@ -186,21 +186,6 @@ const CONSTANTS: ConstantExports = &[
     ("__objc_empty_vtable", HostConstant::NullPtr),
     ("__objc_empty_cache", HostConstant::NullPtr),
 ];
-
-/// Block support is iOS 4+, but it seems like Block Runtime Helpers
-/// could still be called on even if minimal iOS version is set to 3.x?
-///
-/// ref. <https://clang.llvm.org/docs/Block-ABI-Apple.html#runtime-helper-functions>
-fn _Block_object_dispose(_env: &mut Environment, object: ConstVoidPtr, flags: i32) {
-    // `BLOCK_FIELD_IS_BYREF` flag defines an on stack structure holding
-    // the __block variable. It is _probably_ safe to ignore.
-    // TODO: properly implement for block support
-    assert!(flags == 8); // BLOCK_FIELD_IS_BYREF
-    log!(
-        "Warning: Ignoring _Block_object_dispose({:?}, BLOCK_FIELD_IS_BYREF)",
-        object
-    );
-}
 
 const FUNCTIONS: FunctionExports = &[
     export_c_func!(class_getInstanceSize(_)),
@@ -224,5 +209,4 @@ const FUNCTIONS: FunctionExports = &[
     export_c_func!(object_getClass(_)),
     export_c_func!(sel_getName(_)),
     export_c_func!(sel_registerName(_)),
-    export_c_func!(_Block_object_dispose(_, _)),
 ];
