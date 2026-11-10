@@ -28,11 +28,11 @@ use crate::objc::{
 };
 use crate::Environment;
 
-type UIKeyboardAppearance = NSInteger;
-type UIKeyboardType = NSInteger;
+pub type UIKeyboardAppearance = NSInteger;
+pub type UIKeyboardType = NSInteger;
 pub type UIReturnKeyType = NSInteger;
-type UITextAutocapitalizationType = NSInteger;
-type UITextAutocorrectionType = NSInteger;
+pub type UITextAutocapitalizationType = NSInteger;
+pub type UITextAutocorrectionType = NSInteger;
 
 const UITextFieldTextDidChangeNotification: &str = "UITextFieldTextDidChangeNotification";
 
