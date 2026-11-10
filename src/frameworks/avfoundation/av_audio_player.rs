@@ -14,9 +14,12 @@ use crate::frameworks::audio_toolbox::audio_file::{
     AudioFileGetProperty, AudioFileID, AudioFileOpenURL, AudioFileReadPackets,
 };
 use crate::frameworks::audio_toolbox::audio_queue::{
-    kAudioQueueParam_Volume, AudioQueueAllocateBuffer, AudioQueueBufferRef, AudioQueueDispose,
-    AudioQueueEnqueueBuffer, AudioQueueGetParameter, AudioQueueNewOutput, AudioQueueOutputCallback,
-    AudioQueuePause, AudioQueueRef, AudioQueueSetParameter, AudioQueueStart, AudioQueueStop,
+    audio_queue_is_running, kAudioQueueParam_Volume, kAudioQueueProperty_IsRunning,
+    AudioQueueAddPropertyListener, AudioQueueAllocateBuffer, AudioQueueBufferRef,
+    AudioQueueDispose, AudioQueueEnqueueBuffer, AudioQueueGetParameter, AudioQueueNewOutput,
+    AudioQueueOutputCallback, AudioQueuePause, AudioQueuePropertyID,
+    AudioQueuePropertyListenerProc, AudioQueueRef, AudioQueueSetParameter, AudioQueueStart,
+    AudioQueueStop,
 };
 use crate::frameworks::carbon_core::eofErr;
 use crate::frameworks::core_audio_types::AudioStreamBasicDescription;
@@ -35,6 +38,11 @@ const kNumberBuffers: usize = 3;
 struct AVAudioPlayerHostObject {
     audio_file_url: id,
     output_callback: AudioQueueOutputCallback,
+    is_running_callback: AudioQueuePropertyListenerProc,
+    /// Not retained.
+    delegate: id,
+    /// The file ran out and the queue is playing what's left of it.
+    finishing: bool,
     audio_file_id: Option<AudioFileID>,
     audio_desc: Option<AudioStreamBasicDescription>,
     audio_queue: Option<AudioQueueRef>,
@@ -62,10 +70,16 @@ pub const CLASSES: ClassExports = objc_classes! {
     let callback = env
         .dyld
         .create_guest_function(&mut env.mem, symb, hf);
+    let symb = "__touchHLE_AVAudioPlayerIsRunningHelper";
+    let hf: HostFunction = &(_touchHLE_AVAudioPlayerIsRunningHelper as fn(&mut Environment, _, _, _) -> _);
+    let is_running_callback = env.dyld.create_guest_function(&mut env.mem, symb, hf);
 
     let host_object = Box::new(AVAudioPlayerHostObject {
         audio_file_url: nil,
         output_callback: callback,
+        is_running_callback,
+        delegate: nil,
+        finishing: false,
         audio_file_id: None,
         audio_desc: None,
         audio_queue: None,
@@ -141,8 +155,12 @@ pub const CLASSES: ClassExports = objc_classes! {
     }
 }
 
-- (())setDelegate:(id)delegate {
-    todo_objc_setter!(this, delegate);
+// weak/non-retaining
+- (())setDelegate:(id)delegate { // id<AVAudioPlayerDelegate>
+    env.objc.borrow_mut::<AVAudioPlayerHostObject>(this).delegate = delegate;
+}
+- (id)delegate {
+    env.objc.borrow::<AVAudioPlayerHostObject>(this).delegate
 }
 - (())setMeteringEnabled:(bool)enabled {
     todo_objc_setter!(this, enabled);
@@ -202,6 +220,11 @@ pub const CLASSES: ClassExports = objc_classes! {
     assert_eq!(status, 0);
     let aq_ref = env.mem.read(aq_ref_ptr);
     env.objc.borrow_mut::<AVAudioPlayerHostObject>(this).audio_queue = Some(aq_ref);
+    let is_running_callback = env.objc.borrow::<AVAudioPlayerHostObject>(this).is_running_callback;
+    let status = AudioQueueAddPropertyListener(
+        env, aq_ref, kAudioQueueProperty_IsRunning, is_running_callback, this.cast()
+    );
+    assert_eq!(status, 0);
 
     // Reapply the previously set current time and volume in case
     // setVolume/setCurrentTime were called before prepareToPlay
@@ -253,6 +276,12 @@ pub const CLASSES: ClassExports = objc_classes! {
 
     let status = AudioQueueStart(env, aq_ref, Ptr::null());
     assert_eq!(status, 0);
+    // A short file can run out while the queue is primed, before it starts,
+    // when stopping it would do nothing.
+    if env.objc.borrow::<AVAudioPlayerHostObject>(this).finishing {
+        let status = AudioQueueStop(env, aq_ref, false);
+        assert_eq!(status, 0);
+    }
 
     true
 }
@@ -274,13 +303,20 @@ pub const CLASSES: ClassExports = objc_classes! {
         // already being stopped
         return;
     }
+    // Stopping isn't finishing: the delegate isn't told.
+    env.objc.borrow_mut::<AVAudioPlayerHostObject>(this).finishing = false;
     AudioQueueDispose(env, audio_queue.unwrap(), true);
     env.mem.free(audio_queue_buffers.unwrap().cast());
 
-    let &AVAudioPlayerHostObject { audio_file_url, output_callback, num_of_loops, audio_file_id, .. } = env.objc.borrow(this);
+    let &AVAudioPlayerHostObject {
+        audio_file_url, output_callback, is_running_callback, delegate, num_of_loops, audio_file_id, ..
+    } = env.objc.borrow(this);
     *env.objc.borrow_mut::<AVAudioPlayerHostObject>(this) = AVAudioPlayerHostObject {
         audio_file_url,
         output_callback,
+        is_running_callback,
+        delegate,
+        finishing: false,
         num_of_loops,
         audio_file_id,
         audio_desc: None,
@@ -453,6 +489,9 @@ fn _touchHLE_AVAudioPlayerOutputBufferHelper(
             .borrow::<AVAudioPlayerHostObject>(av_audio_player)
             .num_of_loops;
         if number_of_loops == 0 {
+            env.objc
+                .borrow_mut::<AVAudioPlayerHostObject>(av_audio_player)
+                .finishing = true;
             let status = AudioQueueStop(env, aq, false);
             assert_eq!(status, 0);
             env.objc
@@ -469,5 +508,33 @@ fn _touchHLE_AVAudioPlayerOutputBufferHelper(
                 .current_packet = 0;
             _touchHLE_AVAudioPlayerOutputBufferHelper(env, in_user_data, in_aq, in_buf);
         }
+    }
+}
+
+/// (*void)(void *in_user_data, AudioQueueRef in_aq, AudioQueuePropertyID in_id)
+///
+/// Tells the delegate when the queue stops after playing the whole file.
+fn _touchHLE_AVAudioPlayerIsRunningHelper(
+    env: &mut Environment,
+    in_user_data: MutVoidPtr,
+    in_aq: AudioQueueRef,
+    _in_id: AudioQueuePropertyID,
+) {
+    let av_audio_player: id = in_user_data.cast();
+    let host_object = env.objc.borrow::<AVAudioPlayerHostObject>(av_audio_player);
+    if !host_object.finishing || audio_queue_is_running(env, in_aq) {
+        return;
+    }
+    let host_object = env
+        .objc
+        .borrow_mut::<AVAudioPlayerHostObject>(av_audio_player);
+    host_object.finishing = false;
+    let delegate = host_object.delegate;
+    let sel = env
+        .objc
+        .lookup_selector("audioPlayerDidFinishPlaying:successfully:");
+    if delegate != nil && sel.is_some_and(|sel| env.objc.object_has_method(&env.mem, delegate, sel))
+    {
+        () = msg![env; delegate audioPlayerDidFinishPlaying:av_audio_player successfully:true];
     }
 }

@@ -150,7 +150,7 @@ pub const kAudioQueueProperty_IsRunning: AudioQueuePropertyID = fourcc(b"aqrn");
 const kAudioQueueProperty_MagicCookie: AudioQueuePropertyID = fourcc(b"aqmc");
 
 /// (*void)(void *in_user_data, AudioQueueRef in_aq, AudioQueuePropertyID in_id)
-type AudioQueuePropertyListenerProc = GuestFunction;
+pub type AudioQueuePropertyListenerProc = GuestFunction;
 
 const kAudioQueueErr_InvalidBuffer: OSStatus = -66687;
 const kAudioQueueErr_InvalidProperty: OSStatus = -66684;
@@ -423,7 +423,7 @@ pub fn AudioQueueEnqueueBuffer(
     0 // success
 }
 
-fn AudioQueueAddPropertyListener(
+pub fn AudioQueueAddPropertyListener(
     env: &mut Environment,
     in_aq: AudioQueueRef,
     in_id: AudioQueuePropertyID,
@@ -1212,6 +1212,13 @@ fn AudioQueuePrime(
             kAudioQueueErr_CannotStart
         }
     }
+}
+
+/// Whether a queue is running (or stopping), as kAudioQueueProperty_IsRunning
+/// would say, for host code.
+pub fn audio_queue_is_running(env: &mut Environment, in_aq: AudioQueueRef) -> bool {
+    let host_object = &State::get(&mut env.framework_state).audio_queues[&in_aq];
+    host_object.is_running != AudioQueueIsRunning::Stopped
 }
 
 fn notify_aq_is_running(env: &mut Environment, in_aq: AudioQueueRef) {
