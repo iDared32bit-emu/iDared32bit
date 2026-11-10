@@ -220,9 +220,18 @@ pub const CLASSES: ClassExports = objc_classes! {
     }
 
     let vc = env.objc.borrow::<UIViewHostObject>(view).view_controller;
+    // Before iOS 6, only the first view controller's view in a window is
+    // rotated (QA1688). Games that add others rely on them staying as they are.
+    let subviews = env.objc.borrow::<UIViewHostObject>(this).subviews.clone();
+    let is_first = !subviews.iter().any(|&subview| {
+        subview != view && env.objc.borrow::<UIViewHostObject>(subview).view_controller != nil
+    });
     () = msg![env; vc viewWillAppear:false];
     () = msg_super![env; this addSubview:view];
     () = msg![env; vc viewDidAppear:false];
+    if !is_first {
+        return;
+    }
 
     // Support auto-rotation. This is currently only for apps that request a
     // non-portrait interface orientation via Info.plist, as we do not yet
