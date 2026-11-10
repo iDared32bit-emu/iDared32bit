@@ -191,6 +191,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 - (())dealloc {
     log_dbg!("[{:?} dealloc]", this);
+    crate::objc::call_cxx_destructors(env, this);
     ns_key_value_observing::forget_object(env, this);
     env.objc.dealloc_object(this, &mut env.mem)
 }
