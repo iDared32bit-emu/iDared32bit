@@ -22,7 +22,9 @@ use crate::frameworks::uikit::ui_device::{
     UIDeviceOrientationLandscapeLeft, UIDeviceOrientationLandscapeRight,
     UIDeviceOrientationPortraitUpsideDown,
 };
-use crate::objc::{id, msg, msg_class, msg_super, nil, objc_classes, ClassExports};
+use crate::objc::{
+    id, msg, msg_class, msg_super, nil, objc_classes, release, retain, ClassExports,
+};
 
 #[derive(Default)]
 pub struct State {
@@ -36,6 +38,8 @@ pub struct State {
     /// Window levels per window (UIWindowLevel).
     /// Non-retaining!
     pub window_levels: Vec<(id, CGFloat)>,
+    /// Root view controller per window (iOS 4+). Retains the controller.
+    root_view_controllers: Vec<(id, id)>,
 }
 
 pub const CLASSES: ClassExports = objc_classes! {
@@ -103,12 +107,51 @@ pub const CLASSES: ClassExports = objc_classes! {
     // Remove window level entry for this window
     state.window_levels.retain(|(w, _)| *w != this);
 
+    let root_vc = state.root_view_controllers.iter().position(|&(w, _)| w == this);
+    let root_vc = root_vc.map(|i| state.root_view_controllers.remove(i).1);
+
     log_dbg!(
         "Deallocating window {:?}. New list of all windows: {:?}",
         this,
         list,
     );
+    if let Some(root_vc) = root_vc {
+        release(env, root_vc);
+    }
     msg_super![env; this dealloc]
+}
+
+- (id)rootViewController {
+    let state = &env.framework_state.uikit.ui_view.ui_window;
+    let root_vc = state.root_view_controllers.iter().find(|&&(w, _)| w == this);
+    root_vc.map_or(nil, |&(_, vc)| vc)
+}
+- (())setRootViewController:(id)controller { // UIViewController *
+    let old_vc: id = msg![env; this rootViewController];
+    if old_vc == controller {
+        return;
+    }
+    let state = &mut env.framework_state.uikit.ui_view.ui_window;
+    state.root_view_controllers.retain(|&(w, _)| w != this);
+    if old_vc != nil {
+        let old_view: id = msg![env; old_vc view];
+        () = msg![env; old_view removeFromSuperview];
+        release(env, old_vc);
+    }
+    if controller == nil {
+        return;
+    }
+    retain(env, controller);
+    let state = &mut env.framework_state.uikit.ui_view.ui_window;
+    state.root_view_controllers.push((this, controller));
+
+    // The controller's view fills the screen, less the status bar. Adding it
+    // also applies autorotation (see addSubview: below).
+    let view: id = msg![env; controller view];
+    let screen: id = msg_class![env; UIScreen mainScreen];
+    let frame: CGRect = msg![env; screen applicationFrame];
+    () = msg![env; view setFrame:frame];
+    () = msg![env; this addSubview:view];
 }
 
 - (())setHidden:(bool)is_hidden {
