@@ -122,12 +122,7 @@ public func idaredMoviePlay(
 /// Whether the movie has ended, been closed by the user, or been stopped.
 @_cdecl("idared_movie_finished")
 public func idaredMovieFinished() -> Bool {
-    if let controller = Movie.controller,
-       controller.presentingViewController == nil,
-       !controller.isBeingPresented {
-        idaredMovieStop() // Closed with its own close button.
-    }
-    return Movie.controller == nil
+    Movie.controller == nil
 }
 
 @_cdecl("idared_movie_stop")
