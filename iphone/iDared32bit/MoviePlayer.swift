@@ -144,7 +144,11 @@ private func topViewController() -> UIViewController? {
     let windows = UIApplication.shared.connectedScenes
         .compactMap { $0 as? UIWindowScene }
         .flatMap { $0.windows }
-    var top = (windows.first { $0.isKeyWindow } ?? windows.first)?
+    // Not SDL's launch screen or another window that's key.
+    let sdl: AnyClass? = NSClassFromString("SDL_uikitviewcontroller")
+    var top = windows.lazy.compactMap { $0.rootViewController }
+        .first { sdl != nil && $0.isKind(of: sdl!) }
+        ?? (windows.first { $0.isKeyWindow } ?? windows.first)?
         .rootViewController
     while let presented = top?.presentedViewController {
         top = presented
