@@ -5,17 +5,22 @@
  */
 //! `UITabBarController`, `UITabBar` and `UITabBarItem`.
 //!
-//! TODO: this is a stub. The selected tab's view is shown above a plain
-//! black bar, and tabs can be switched from code, but the bar's items aren't
-//! drawn and tapping them does nothing. System items have no title or
-//! image.
+//! The bar draws each item's icon (only its alpha counts, as on iOS) and
+//! title, and switches tabs when one is tapped.
+//!
+//! TODO: system items have no title or image, there's no "More" tab for
+//! over five tabs, and the bar is drawn plainer than iOS's.
 
 use super::UIViewControllerHostObject;
+use crate::frameworks::core_graphics::cg_image::{self, CGImageRef, CGImageRelease};
 use crate::frameworks::core_graphics::{CGFloat, CGPoint, CGRect, CGSize};
 use crate::frameworks::foundation::ns_string::get_static_str;
 use crate::frameworks::foundation::{ns_array, NSInteger, NSUInteger};
 use crate::frameworks::uikit::ui_application::UIInterfaceOrientation;
 use crate::frameworks::uikit::ui_bar_item::UIBarItemHostObject;
+use crate::frameworks::uikit::ui_font::UITextAlignmentCenter;
+use crate::frameworks::uikit::ui_view::UIViewHostObject;
+use crate::image::Image;
 use crate::objc::{
     autorelease, id, impl_HostObject_with_superclass, msg, msg_class, msg_send, msg_super, nil,
     objc_classes, release, retain, todo_objc_setter, ClassExports, NSZonePtr,
@@ -23,6 +28,8 @@ use crate::objc::{
 use crate::Environment;
 
 const TAB_BAR_HEIGHT: CGFloat = 49.0;
+/// Without a "More" tab, the bar has room for this many.
+const MAX_ITEMS: usize = 5;
 
 #[derive(Default)]
 struct UITabBarControllerHostObject {
@@ -46,6 +53,20 @@ struct UITabBarItemHostObject {
     badge_value: id,
 }
 impl_HostObject_with_superclass!(UITabBarItemHostObject);
+
+#[derive(Default)]
+struct UITabBarHostObject {
+    superclass: UIViewHostObject,
+    /// `UITabBarItem*`s, retained.
+    items: Vec<id>,
+    /// Weak.
+    selected_item: id,
+    /// Weak.
+    delegate: id,
+    /// A view per item, drawn by [update_tab_bar]. Retained.
+    cells: Vec<id>,
+}
+impl_HostObject_with_superclass!(UITabBarHostObject);
 
 fn selected(env: &Environment, this: id) -> id {
     let host_object = env.objc.borrow::<UITabBarControllerHostObject>(this);
@@ -93,6 +114,7 @@ fn show_selected(env: &mut Environment, this: id, old: id, notify: bool) {
     if tab_bar_superview != view {
         () = msg![env; view addSubview:tab_bar];
     }
+    sync_tab_bar(env, this, tab_bar);
     if new == nil || new == old {
         return;
     }
@@ -112,6 +134,184 @@ fn show_selected(env: &mut Environment, this: id, old: id, notify: bool) {
     if notify {
         () = msg![env; new viewDidAppear:false];
     }
+}
+
+/// Gives the bar the tabs' items, and shows the selected one.
+fn sync_tab_bar(env: &mut Environment, this: id, tab_bar: id) {
+    let vcs = env
+        .objc
+        .borrow::<UITabBarControllerHostObject>(this)
+        .view_controllers
+        .clone();
+    let mut items = Vec::new();
+    for vc in vcs {
+        let item: id = msg![env; vc tabBarItem];
+        retain(env, item);
+        items.push(item);
+    }
+    let items = ns_array::from_vec(env, items);
+    () = msg![env; tab_bar setItems:items animated:false];
+    release(env, items);
+    let vc = selected(env, this);
+    let item: id = if vc == nil {
+        nil
+    } else {
+        msg![env; vc tabBarItem]
+    };
+    () = msg![env; tab_bar setSelectedItem:item];
+    () = msg![env; tab_bar setDelegate:this];
+}
+
+/// A copy of a tab icon in one colour: iOS only uses the icon's alpha.
+fn tinted_icon(env: &mut Environment, image: id, (r, g, b): (f32, f32, f32)) -> id {
+    if image == nil {
+        return nil;
+    }
+    let cg_image: CGImageRef = msg![env; image CGImage];
+    let source = cg_image::borrow_image(&env.objc, cg_image);
+    let dimensions = source.dimensions();
+    // The pixels are premultiplied.
+    let pixels = source
+        .pixels()
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .flat_map(|p| {
+            let a = p[3] as f32;
+            [(r * a) as u8, (g * a) as u8, (b * a) as u8, p[3]]
+        })
+        .collect();
+    let new = cg_image::from_image(env, Image::from_pixel_vec(pixels, dimensions));
+    let scale: CGFloat = msg![env; image scale];
+    let new_image: id = msg_class![env; UIImage imageWithCGImage:new scale:scale orientation:0];
+    CGImageRelease(env, new);
+    new_image
+}
+
+/// Rebuilds the views showing a tab bar's items.
+fn update_tab_bar(env: &mut Environment, this: id) {
+    let host_object = env.objc.borrow_mut::<UITabBarHostObject>(this);
+    let old_cells = std::mem::take(&mut host_object.cells);
+    let items: Vec<id> = host_object.items.iter().copied().take(MAX_ITEMS).collect();
+    let selected_item = host_object.selected_item;
+    for cell in old_cells {
+        () = msg![env; cell removeFromSuperview];
+        release(env, cell);
+    }
+    if items.is_empty() {
+        return;
+    }
+    let bounds: CGRect = msg![env; this bounds];
+    let width = bounds.size.width / items.len() as CGFloat;
+    let mut cells = Vec::new();
+    for (i, &item) in items.iter().enumerate() {
+        let is_selected = item == selected_item;
+        let frame = CGRect {
+            origin: CGPoint {
+                x: width * i as CGFloat + 2.0,
+                y: 2.0,
+            },
+            size: CGSize {
+                width: width - 4.0,
+                height: TAB_BAR_HEIGHT - 4.0,
+            },
+        };
+        let cell: id = msg_class![env; UIView alloc];
+        let cell: id = msg![env; cell initWithFrame:frame];
+        let background: id = if is_selected {
+            msg_class![env; UIColor colorWithWhite:1.0f32 alpha:0.15f32]
+        } else {
+            msg_class![env; UIColor clearColor]
+        };
+        () = msg![env; cell setBackgroundColor:background];
+        let layer: id = msg![env; cell layer];
+        () = msg![env; layer setCornerRadius:3.0f32];
+
+        let image: id = msg![env; item image];
+        let tint = if is_selected {
+            (0.4, 0.7, 1.0)
+        } else {
+            (0.6, 0.6, 0.6)
+        };
+        let icon = tinted_icon(env, image, tint);
+        if icon != nil {
+            let size: CGSize = msg![env; icon size];
+            let icon_frame = CGRect {
+                origin: CGPoint {
+                    x: (frame.size.width - size.width) / 2.0,
+                    y: 2.0,
+                },
+                size,
+            };
+            let icon_view: id = msg_class![env; UIImageView alloc];
+            let icon_view: id = msg![env; icon_view initWithImage:icon];
+            () = msg![env; icon_view setFrame:icon_frame];
+            () = msg![env; cell addSubview:icon_view];
+            release(env, icon_view);
+        }
+
+        let title: id = msg![env; item title];
+        let label: id = msg_class![env; UILabel alloc];
+        let label_frame = CGRect {
+            origin: CGPoint {
+                x: 0.0,
+                y: frame.size.height - 13.0,
+            },
+            size: CGSize {
+                width: frame.size.width,
+                height: 12.0,
+            },
+        };
+        let label: id = msg![env; label initWithFrame:label_frame];
+        () = msg![env; label setText:title];
+        let font: id = msg_class![env; UIFont boldSystemFontOfSize:10.0f32];
+        () = msg![env; label setFont:font];
+        () = msg![env; label setTextAlignment:UITextAlignmentCenter];
+        let text_color: id = if is_selected {
+            msg_class![env; UIColor whiteColor]
+        } else {
+            msg_class![env; UIColor lightGrayColor]
+        };
+        () = msg![env; label setTextColor:text_color];
+        let clear: id = msg_class![env; UIColor clearColor];
+        () = msg![env; label setBackgroundColor:clear];
+        () = msg![env; cell addSubview:label];
+        release(env, label);
+
+        let badge_value: id = msg![env; item badgeValue];
+        if badge_value != nil {
+            let length: NSUInteger = msg![env; badge_value length];
+            let badge_width = 18.0 + 7.0 * length.saturating_sub(1) as CGFloat;
+            let badge_frame = CGRect {
+                origin: CGPoint {
+                    x: frame.size.width / 2.0 + 6.0,
+                    y: 0.0,
+                },
+                size: CGSize {
+                    width: badge_width,
+                    height: 18.0,
+                },
+            };
+            let badge: id = msg_class![env; UILabel alloc];
+            let badge: id = msg![env; badge initWithFrame:badge_frame];
+            () = msg![env; badge setText:badge_value];
+            let font: id = msg_class![env; UIFont boldSystemFontOfSize:12.0f32];
+            () = msg![env; badge setFont:font];
+            () = msg![env; badge setTextAlignment:UITextAlignmentCenter];
+            let white: id = msg_class![env; UIColor whiteColor];
+            () = msg![env; badge setTextColor:white];
+            let red: id = msg_class![env; UIColor redColor];
+            () = msg![env; badge setBackgroundColor:red];
+            let layer: id = msg![env; badge layer];
+            () = msg![env; layer setCornerRadius:9.0f32];
+            () = msg![env; cell addSubview:badge];
+            release(env, badge);
+        }
+
+        () = msg![env; this addSubview:cell];
+        cells.push(cell);
+    }
+    env.objc.borrow_mut::<UITabBarHostObject>(this).cells = cells;
 }
 
 pub const CLASSES: ClassExports = objc_classes! {
@@ -260,6 +460,35 @@ pub const CLASSES: ClassExports = objc_classes! {
     todo_objc_setter!(this, controllers);
 }
 
+// UITabBarDelegate implementation: a tab was tapped.
+- (())tabBar:(id)tab_bar didSelectItem:(id)item { // UITabBar*, UITabBarItem*
+    let vcs = env.objc.borrow::<UITabBarControllerHostObject>(this).view_controllers.clone();
+    let mut index = None;
+    for (i, &vc) in vcs.iter().enumerate() {
+        let vc_item: id = msg![env; vc tabBarItem];
+        if vc_item == item {
+            index = Some(i);
+        }
+    }
+    let Some(index) = index else {
+        return;
+    };
+    let vc = vcs[index];
+    let delegate = env.objc.borrow::<UITabBarControllerHostObject>(this).delegate;
+    let should_sel = env.objc.lookup_selector("tabBarController:shouldSelectViewController:");
+    let asks = delegate != nil && should_sel.is_some_and(|sel| env.objc.object_has_method(&env.mem, delegate, sel));
+    if asks && !msg![env; delegate tabBarController:this shouldSelectViewController:vc] {
+        // Put the bar back as it was.
+        sync_tab_bar(env, this, tab_bar);
+        return;
+    }
+    () = msg![env; this setSelectedIndex:(index as NSUInteger)];
+    let did_sel = env.objc.lookup_selector("tabBarController:didSelectViewController:");
+    if delegate != nil && did_sel.is_some_and(|sel| env.objc.object_has_method(&env.mem, delegate, sel)) {
+        () = msg![env; delegate tabBarController:this didSelectViewController:vc];
+    }
+}
+
 // Like a navigation controller, it rotates as its selected tab allows.
 - (bool)shouldAutorotateToInterfaceOrientation:(UIInterfaceOrientation)orientation {
     let vc = selected(env, this);
@@ -271,14 +500,106 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 @end
 
-// TODO: draw the items and let them be tapped.
 @implementation UITabBar: UIView
 
-- (())setItems:(id)items animated:(bool)_animated { // NSArray*
-    todo_objc_setter!(this, items);
++ (id)allocWithZone:(NSZonePtr)_zone {
+    let host_object = Box::<UITabBarHostObject>::default();
+    env.objc.alloc_object(this, host_object, &mut env.mem)
+}
+
+- (())dealloc {
+    let host_object = env.objc.borrow_mut::<UITabBarHostObject>(this);
+    let items = std::mem::take(&mut host_object.items);
+    let cells = std::mem::take(&mut host_object.cells);
+    for object in items.into_iter().chain(cells) {
+        release(env, object);
+    }
+    msg_super![env; this dealloc]
+}
+
+- (id)items {
+    let items = env.objc.borrow::<UITabBarHostObject>(this).items.clone();
+    for &item in &items {
+        retain(env, item);
+    }
+    let array = ns_array::from_vec(env, items);
+    autorelease(env, array)
 }
 - (())setItems:(id)items { // NSArray*
-    todo_objc_setter!(this, items);
+    () = msg![env; this setItems:items animated:false];
+}
+- (())setItems:(id)items animated:(bool)_animated { // NSArray*
+    let count: NSUInteger = if items == nil { 0 } else { msg![env; items count] };
+    let mut new = Vec::new();
+    for i in 0..count {
+        let item: id = msg![env; items objectAtIndex:i];
+        retain(env, item);
+        new.push(item);
+    }
+    let host_object = env.objc.borrow_mut::<UITabBarHostObject>(this);
+    let old = std::mem::replace(&mut host_object.items, new);
+    if !host_object.items.contains(&host_object.selected_item) {
+        host_object.selected_item = nil;
+    }
+    for item in old {
+        release(env, item);
+    }
+    update_tab_bar(env, this);
+}
+
+- (id)selectedItem {
+    env.objc.borrow::<UITabBarHostObject>(this).selected_item
+}
+- (())setSelectedItem:(id)item { // UITabBarItem*
+    env.objc.borrow_mut::<UITabBarHostObject>(this).selected_item = item;
+    update_tab_bar(env, this);
+}
+
+// weak/non-retaining
+- (id)delegate {
+    env.objc.borrow::<UITabBarHostObject>(this).delegate
+}
+- (())setDelegate:(id)delegate { // id<UITabBarDelegate>
+    env.objc.borrow_mut::<UITabBarHostObject>(this).delegate = delegate;
+}
+
+- (())setFrame:(CGRect)frame {
+    () = msg_super![env; this setFrame:frame];
+    update_tab_bar(env, this);
+}
+
+// Touches go to the bar, not the items' views.
+- (id)hitTest:(CGPoint)point withEvent:(id)event { // UIEvent*
+    if msg![env; this pointInside:point withEvent:event] {
+        this
+    } else {
+        nil
+    }
+}
+
+- (())touchesEnded:(id)touches withEvent:(id)_event { // NSSet* of UITouch*
+    let touch: id = msg![env; touches anyObject];
+    let point: CGPoint = msg![env; touch locationInView:this];
+    let bounds: CGRect = msg![env; this bounds];
+    let host_object = env.objc.borrow::<UITabBarHostObject>(this);
+    let items: Vec<id> = host_object.items.iter().copied().take(MAX_ITEMS).collect();
+    let (old_selected, delegate) = (host_object.selected_item, host_object.delegate);
+    if items.is_empty() || bounds.size.width <= 0.0 {
+        return;
+    }
+    let width = bounds.size.width / items.len() as CGFloat;
+    let index = ((point.x - bounds.origin.x) / width).floor();
+    if index < 0.0 || index as usize >= items.len() {
+        return;
+    }
+    let item = items[index as usize];
+    if !msg![env; item isEnabled] || item == old_selected {
+        return;
+    }
+    () = msg![env; this setSelectedItem:item];
+    if delegate != nil {
+        () = msg![env; delegate tabBar:this didSelectItem:item];
+    }
 }
 
 @end
