@@ -199,11 +199,9 @@ pub const CLASSES: ClassExports = objc_classes! {
     match *env.objc.borrow(this) {
         // FIXME: don't assume URL is already absolute
         NSURLHostObject::FileURL { ns_string, .. } => ns_string,
-        NSURLHostObject::OtherURL { ns_string } => {
-            // TODO: full RFC 1808 resolution
-            assert!(to_rust_string(env, ns_string).starts_with("http"));
-            ns_string
-        },
+        // Relative URLs are stored resolved against their base, and one
+        // without a base is its own absolute string, as on iOS.
+        NSURLHostObject::OtherURL { ns_string } => ns_string,
     }
 }
 
@@ -219,6 +217,40 @@ pub const CLASSES: ClassExports = objc_classes! {
     };
     let query = from_rust_string(env, query.to_string());
     autorelease(env, query)
+}
+
+- (id)scheme {
+    let scheme = match *env.objc.borrow(this) {
+        NSURLHostObject::FileURL { .. } => Some("file".to_string()),
+        NSURLHostObject::OtherURL { ns_string } => {
+            let url = to_rust_string(env, ns_string);
+            split_url(&url).0.map(str::to_string)
+        },
+    };
+    let Some(scheme) = scheme else {
+        return nil;
+    };
+    let scheme = from_rust_string(env, scheme);
+    autorelease(env, scheme)
+}
+
+- (id)host {
+    // File URLs made from paths never have one.
+    let &NSURLHostObject::OtherURL { ns_string } = env.objc.borrow(this) else {
+        return nil;
+    };
+    let url = to_rust_string(env, ns_string).to_string();
+    let Some(authority) = split_url(&url).1 else {
+        return nil;
+    };
+    // Without the user, password and port.
+    let host = authority.rsplit_once('@').map_or(authority, |(_, host)| host);
+    let host = match host.strip_prefix('[') {
+        Some(ipv6) => ipv6.split(']').next().unwrap(),
+        None => host.split(':').next().unwrap(),
+    };
+    let host = from_rust_string(env, host.to_string());
+    autorelease(env, host)
 }
 
 - (id)absoluteURL {
