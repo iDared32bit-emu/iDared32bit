@@ -7,14 +7,48 @@
 
 use crate::dyld::{ConstantExports, HostConstant};
 use crate::frameworks::foundation::{ns_string, ns_url, NSInteger, NSTimeInterval};
-use crate::frameworks::uikit::ui_device::UIDeviceOrientation;
+use crate::frameworks::uikit::ui_device::{
+    UIDeviceOrientation, UIDeviceOrientationLandscapeLeft, UIDeviceOrientationLandscapeRight,
+    UIDeviceOrientationPortrait,
+};
 use crate::objc::{
     id, msg, msg_class, nil, objc_classes, release, retain, todo_objc_setter, ClassExports,
     HostObject, NSZonePtr,
 };
 use crate::Environment;
 use std::collections::VecDeque;
+use std::ffi::{c_char, CString};
+use std::sync::OnceLock;
 use std::time::{Duration, Instant};
+
+/// The host's own movie player, if it has one: on iOS, Swift in
+/// `iphone/iDared32bit/MoviePlayer.swift`. `play` shows a movie file full
+/// screen, with or without controls, in the given orientation (a
+/// `UIInterfaceOrientation`, the same values as `UIDeviceOrientation`'s
+/// for these); `finished` says whether it has ended
+/// (or was closed by the user, or stopped); `stop` closes it.
+#[derive(Clone, Copy)]
+struct NativePlayer {
+    play: unsafe extern "C" fn(*const c_char, bool, i32),
+    finished: unsafe extern "C" fn() -> bool,
+    stop: unsafe extern "C" fn(),
+}
+
+static NATIVE_PLAYER: OnceLock<NativePlayer> = OnceLock::new();
+
+/// Called by the iOS app's `main()`, like `idared_set_swiftui_app_picker`.
+#[no_mangle]
+pub extern "C" fn idared_set_movie_player(
+    play: unsafe extern "C" fn(*const c_char, bool, i32),
+    finished: unsafe extern "C" fn() -> bool,
+    stop: unsafe extern "C" fn(),
+) {
+    let _ = NATIVE_PLAYER.set(NativePlayer {
+        play,
+        finished,
+        stop,
+    });
+}
 
 #[derive(Default)]
 pub struct State {
@@ -25,6 +59,8 @@ pub struct State {
     /// delay such notifications until the app next returns to the run loop,
     /// which seems to be late enough.
     pending_notifications: VecDeque<(&'static str, id, Instant)>,
+    /// The player whose movie the host is playing, retained until it ends.
+    native_player: Option<id>,
 }
 impl State {
     fn get(env: &mut Environment) -> &mut Self {
@@ -39,6 +75,12 @@ const MPMovieSourceTypeUnknown: MPMovieSourceType = 0;
 
 type MPMoviePlaybackState = NSInteger;
 const MPMoviePlaybackStateStopped: MPMoviePlaybackState = 0;
+const MPMoviePlaybackStatePlaying: MPMoviePlaybackState = 1;
+
+const MPMovieControlStyleNone: MPMovieControlStyle = 0;
+/// `MPMovieControlModeHidden`, for `setMovieControlMode:` (iPhone OS 3.1
+/// and earlier).
+const MPMovieControlModeHidden: NSInteger = 2;
 
 // Values might not be correct, but as these are linked symbol constants, it
 // shouldn't matter.
@@ -84,8 +126,9 @@ struct MPMoviePlayerControllerHostObject {
     content_url: id,
     movie_source_type: MPMovieSourceType,
     should_autoplay: bool,
-    // Stored for games to read back: playback is faked, so they do nothing.
     control_style: MPMovieControlStyle,
+    movie_control_mode: NSInteger,
+    orientation: UIDeviceOrientation,
     use_application_audio_session: bool,
     // UIView *, made when first asked for
     background_view: id,
@@ -106,6 +149,10 @@ pub const CLASSES: ClassExports = objc_classes! {
         movie_source_type: MPMovieSourceTypeUnknown,
         should_autoplay: true,
         control_style: 1, // MPMovieControlStyleDefault
+        movie_control_mode: 0, // MPMovieControlModeDefault
+        // iPhone OS 3's player always plays in landscape, home button on the
+        // right, so some games' movies are made sideways for it.
+        orientation: UIDeviceOrientationLandscapeLeft,
         use_application_audio_session: true,
         background_view: nil,
     });
@@ -207,19 +254,24 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (MPMoviePlaybackState)playbackState {
-    MPMoviePlaybackStateStopped // TODO
+    if State::get(env).native_player == Some(this) {
+        MPMoviePlaybackStatePlaying
+    } else {
+        MPMoviePlaybackStateStopped // TODO
+    }
 }
 
-// Apparently an undocumented, private API, but Spore Origins uses it.
-- (())setMovieControlMode:(NSInteger)_mode {
-    // As this is undocumented and we don't have real video playback yet, let's
-    // ignore it.
+// iPhone OS 3.1 and earlier's way to choose the controls.
+- (())setMovieControlMode:(NSInteger)mode {
+    env.objc.borrow_mut::<MPMoviePlayerControllerHostObject>(this).movie_control_mode = mode;
 }
 
 // Another undocumented one! But some apps may still use it :/
 // https://stackoverflow.com/a/1390079/2241008
-- (())setOrientation:(UIDeviceOrientation)_orientation animated:(bool)_animated {
-
+- (())setOrientation:(UIDeviceOrientation)orientation animated:(bool)_animated {
+    if (UIDeviceOrientationPortrait..=UIDeviceOrientationLandscapeRight).contains(&orientation) {
+        env.objc.borrow_mut::<MPMoviePlayerControllerHostObject>(this).orientation = orientation;
+    }
 }
 
 // MPMediaPlayback implementation
@@ -233,6 +285,10 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 - (())play {
     log!("TODO: [(MPMoviePlayerController*){:?} play]", this);
+    let state = State::get(env);
+    if state.native_player == Some(this) && state.active_player == Some(this) {
+        return; // Already playing.
+    }
     if let Some(old) = env.framework_state.media_player.movie_player.active_player {
         let _: () = msg![env; old stop];
     }
@@ -240,6 +296,10 @@ pub const CLASSES: ClassExports = objc_classes! {
     // Movie player is retained by the runtime until it is stopped
     retain(env, this);
     env.framework_state.media_player.movie_player.active_player = Some(this);
+
+    if play_natively(env, this) {
+        return;
+    }
 
     // Act as if playback immediately completed after 1 second
     // (various apps wait for this, such as BIA and Hero of Sparta).
@@ -267,6 +327,10 @@ pub const CLASSES: ClassExports = objc_classes! {
         assert!(this == env.framework_state.media_player.movie_player.active_player.take().unwrap());
         release(env, this);
     }
+    // The finish notification is still posted, as for the faked playback.
+    if State::get(env).native_player == Some(this) {
+        unsafe { (NATIVE_PLAYER.get().unwrap().stop)() };
+    }
 }
 
 @end
@@ -288,9 +352,67 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 };
 
+/// Has the host play the player's movie, if it can. Returns `false` if it
+/// can't, so that playback is faked instead.
+fn play_natively(env: &mut Environment, this: id) -> bool {
+    let Some(&native) = NATIVE_PLAYER.get() else {
+        return false;
+    };
+    // A stopped movie that hasn't finished closing yet.
+    if let Some(old) = State::get(env).native_player.take() {
+        State::get(env).pending_notifications.push_back((
+            MPMoviePlayerPlaybackDidFinishNotification,
+            old,
+            Instant::now(),
+        ));
+        release(env, old);
+    }
+    let host_obj = env.objc.borrow::<MPMoviePlayerControllerHostObject>(this);
+    let url = host_obj.content_url;
+    let orientation = host_obj.orientation;
+    let controls = host_obj.control_style != MPMovieControlStyleNone
+        && host_obj.movie_control_mode != MPMovieControlModeHidden;
+    let is_file: bool = msg![env; url isFileURL];
+    if !is_file {
+        log!("Can't play non-file movie URL {:?}, faking playback", url);
+        return false;
+    }
+    // The game may be read from an IPA, so the host player gets a copy.
+    let path = ns_url::to_rust_path(env, url);
+    let Ok(bytes) = env.fs.read(&path) else {
+        log!("Couldn't read movie {:?}, faking playback", path);
+        return false;
+    };
+    // The extension tells the host player what kind of file it is.
+    let extension = path.as_str().rsplit_once('.').map_or("", |(_, e)| e);
+    let host_path = std::env::temp_dir().join(format!("Movie.{extension}"));
+    if let Err(e) = std::fs::write(&host_path, bytes) {
+        log!("Couldn't write {:?} ({}), faking playback", host_path, e);
+        return false;
+    }
+    let host_path = CString::new(host_path.to_str().unwrap()).unwrap();
+    unsafe { (native.play)(host_path.as_ptr(), controls, orientation) };
+    retain(env, this);
+    State::get(env).native_player = Some(this);
+    true
+}
+
 /// For use by `NSRunLoop` via [super::handle_players]: check movie players'
 /// status, send notifications if necessary.
 pub(super) fn handle_players(env: &mut Environment) {
+    let finished = State::get(env)
+        .native_player
+        .filter(|_| unsafe { (NATIVE_PLAYER.get().unwrap().finished)() });
+    if let Some(player) = finished {
+        let state = State::get(env);
+        state.native_player = None;
+        state.pending_notifications.push_back((
+            MPMoviePlayerPlaybackDidFinishNotification,
+            player,
+            Instant::now(),
+        ));
+    }
+
     let mut notifs_to_run = Vec::new();
     let pending_notifs = &mut State::get(env).pending_notifications;
     let mut i = 0;
@@ -308,5 +430,8 @@ pub(super) fn handle_players(env: &mut Environment) {
         let center: id = msg_class![env; NSNotificationCenter defaultCenter];
         // TODO: should there be some user info attached?
         let _: () = msg![env; center postNotificationName:name object:object];
+    }
+    if let Some(player) = finished {
+        release(env, player);
     }
 }

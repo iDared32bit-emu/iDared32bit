@@ -7,6 +7,7 @@ iDared 32bit is based on [touchHLE](https://touchhle.org/). This file lists only
 Usability:
 
 - Games that vibrate the phone now do, and rumble a connected controller too.
+- On iOS, games' movies now play instead of being skipped.
 
 Compatibility:
 

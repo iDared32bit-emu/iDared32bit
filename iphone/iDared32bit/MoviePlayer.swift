@@ -1,0 +1,158 @@
+/*
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at https://mozilla.org/MPL/2.0/.
+ */
+// Plays games' movies full screen with AVKit, for
+// src/frameworks/media_player/movie_player.rs.
+
+import AVKit
+import UIKit
+
+private enum Movie {
+    nonisolated(unsafe) static var controller: MovieViewController?
+    nonisolated(unsafe) static var endObserver: NSObjectProtocol?
+}
+
+/// Holds the player, turned to the orientation the game asked for: some
+/// games' movies are made sideways for iPhone OS 3's landscape player. The
+/// interface itself stays in the game's orientation, the only one iOS
+/// allows while it's running, so the player is turned within it instead.
+private final class MovieViewController: UIViewController {
+    let player = AVPlayerViewController()
+    let content = UIView()
+    var orientation = UIInterfaceOrientation.landscapeRight
+    /// The interface's orientation when the movie started.
+    var current = UIInterfaceOrientation.portrait
+    var controls = true
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        view.backgroundColor = .black
+        view.addSubview(content)
+        addChild(player)
+        player.view.frame = content.bounds
+        player.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        content.addSubview(player.view)
+        player.didMove(toParent: self)
+        player.showsPlaybackControls = controls
+        guard controls else {
+            return
+        }
+        // AVKit only has its own close button when presented by itself.
+        let close = UIButton(type: .close, primaryAction: UIAction { _ in
+            idaredMovieStop()
+        })
+        close.translatesAutoresizingMaskIntoConstraints = false
+        content.addSubview(close)
+        NSLayoutConstraint.activate([
+            close.leadingAnchor.constraint(
+                equalTo: content.leadingAnchor,
+                constant: 24,
+            ),
+            close.topAnchor.constraint(equalTo: content.topAnchor, constant: 24),
+        ])
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        let turn = angle(orientation) - angle(current)
+        var size = view.bounds.size
+        if Int((abs(turn) / (.pi / 2)).rounded()) % 2 == 1 {
+            size = CGSize(width: size.height, height: size.width)
+        }
+        content.transform = .identity
+        content.bounds = CGRect(origin: .zero, size: size)
+        content.center = CGPoint(x: view.bounds.midX, y: view.bounds.midY)
+        content.transform = CGAffineTransform(rotationAngle: turn)
+    }
+
+    /// How far an orientation's content is turned clockwise from portrait.
+    private func angle(_ orientation: UIInterfaceOrientation) -> CGFloat {
+        switch orientation {
+        case .landscapeRight: .pi / 2
+        case .portraitUpsideDown: .pi
+        case .landscapeLeft: -.pi / 2
+        default: 0
+        }
+    }
+
+    override var supportedInterfaceOrientations: UIInterfaceOrientationMask {
+        UIInterfaceOrientationMask(rawValue: 1 << current.rawValue)
+    }
+    override var prefersStatusBarHidden: Bool { true }
+    override var prefersHomeIndicatorAutoHidden: Bool { true }
+}
+
+@_cdecl("idared_movie_play")
+public func idaredMoviePlay(
+    _ path: UnsafePointer<CChar>,
+    _ controls: Bool,
+    _ orientation: Int32,
+) {
+    idaredMovieStop()
+    guard let presenter = topViewController() else {
+        return
+    }
+    let item = AVPlayerItem(url: URL(fileURLWithPath: String(cString: path)))
+    let controller = MovieViewController()
+    controller.player.player = AVPlayer(playerItem: item)
+    controller.controls = controls
+    controller.orientation =
+        UIInterfaceOrientation(rawValue: Int(orientation)) ?? .landscapeRight
+    let scene = presenter.view.window?.windowScene
+    if let current = scene?.effectiveGeometry.interfaceOrientation,
+       current != .unknown {
+        controller.current = current
+    }
+    controller.modalPresentationStyle = .fullScreen
+    Movie.endObserver = NotificationCenter.default.addObserver(
+        forName: .AVPlayerItemDidPlayToEndTime,
+        object: item,
+        queue: .main,
+    ) { _ in
+        idaredMovieStop()
+    }
+    Movie.controller = controller
+    presenter.present(controller, animated: false) {
+        controller.player.player?.play()
+    }
+}
+
+/// Whether the movie has ended, been closed by the user, or been stopped.
+@_cdecl("idared_movie_finished")
+public func idaredMovieFinished() -> Bool {
+    if let controller = Movie.controller,
+       controller.presentingViewController == nil,
+       !controller.isBeingPresented {
+        idaredMovieStop() // Closed with its own close button.
+    }
+    return Movie.controller == nil
+}
+
+@_cdecl("idared_movie_stop")
+public func idaredMovieStop() {
+    if let observer = Movie.endObserver {
+        NotificationCenter.default.removeObserver(observer)
+        Movie.endObserver = nil
+    }
+    guard let controller = Movie.controller else {
+        return
+    }
+    Movie.controller = nil
+    controller.player.player?.pause()
+    controller.presentingViewController?.dismiss(animated: false)
+}
+
+/// SDL's view controller, or whatever it's presenting.
+private func topViewController() -> UIViewController? {
+    let windows = UIApplication.shared.connectedScenes
+        .compactMap { $0 as? UIWindowScene }
+        .flatMap { $0.windows }
+    var top = (windows.first { $0.isKeyWindow } ?? windows.first)?
+        .rootViewController
+    while let presented = top?.presentedViewController {
+        top = presented
+    }
+    return top
+}
