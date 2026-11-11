@@ -459,6 +459,13 @@ pub const CLASSES: ClassExports = objc_classes! {
     autorelease(env, new)
 }
 
+// Deprecated, but in iPhone OS 2.0: the encoding is guessed.
++ (id)stringWithContentsOfURL:(id)url { // NSURL*
+    let new: id = msg![env; this alloc];
+    let new: id = msg![env; new initWithContentsOfURL:url];
+    autorelease(env, new)
+}
+
 + (id)stringWithContentsOfURL:(id)url // NSURL*
                      encoding:(NSStringEncoding)encoding
                          error:(MutPtr<id>)error { // NSError**
@@ -1676,6 +1683,20 @@ pub const CLASSES: ClassExports = objc_classes! {
     let host_object = StringHostObject::decode(Cow::Owned(bytes), encoding);
     *env.objc.borrow_mut(this) = host_object;
     this
+}
+
+- (id)initWithContentsOfURL:(id)url { // NSURL*
+    if url != nil && msg![env; url isFileURL] {
+        let path: id = msg![env; url path];
+        return msg![env; this initWithContentsOfFile:path];
+    }
+    let data: id = msg_class![env; NSData dataWithContentsOfURL:url];
+    if data == nil {
+        release(env, this);
+        return nil;
+    }
+    let encoding: NSStringEncoding = msg_class![env; NSString defaultCStringEncoding];
+    msg![env; this initWithData:data encoding:encoding]
 }
 
 - (id)initWithContentsOfURL:(id)url // NSURL*
