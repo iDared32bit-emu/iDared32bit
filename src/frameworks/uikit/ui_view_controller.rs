@@ -56,6 +56,9 @@ struct UIViewControllerHostObject {
     tab_bar_item: id,
     /// The tab bar controller this one is a tab of. Weak.
     tab_bar_controller: id,
+    /// The view came with the controller in a nib, and `viewDidLoad` is
+    /// still to be sent when it's first asked for.
+    view_did_load_pending: bool,
 }
 impl HostObject for UIViewControllerHostObject {}
 
@@ -91,6 +94,7 @@ pub const CLASSES: ClassExports = objc_classes! {
     let view: id = msg![env; coder decodeObjectForKey:key_ns_string];
 
     () = msg![env; this setView:view];
+    env.objc.borrow_mut::<UIViewControllerHostObject>(this).view_did_load_pending = view != nil;
 
     let key = get_static_str(env, "UITabBarItem");
     if msg![env; coder containsValueForKey:key] {
@@ -183,8 +187,12 @@ pub const CLASSES: ClassExports = objc_classes! {
     release(env, old_view);
 }
 - (id)view {
-    let view = env.objc.borrow_mut::<UIViewControllerHostObject>(this).view;
-    if view == nil {
+    let host_object = env.objc.borrow_mut::<UIViewControllerHostObject>(this);
+    let view = host_object.view;
+    if std::mem::take(&mut host_object.view_did_load_pending) {
+        () = msg![env; this viewDidLoad];
+        view
+    } else if view == nil {
         () = msg![env; this loadView];
         let view = env.objc.borrow_mut::<UIViewControllerHostObject>(this).view;
         () = msg![env; this viewDidLoad];
