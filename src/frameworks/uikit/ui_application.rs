@@ -202,6 +202,16 @@ pub const CLASSES: ClassExports = objc_classes! {
     }
     let ns_string = msg![env; url absoluteString];
     let url_string = ns_string::to_rust_string(env, ns_string);
+    // Only iPhone OS's own apps' schemes open (others' apps aren't there).
+    // Anything else fails and the game carries on, as on iOS.
+    let scheme = url_string.split_once(':').map(|(s, _)| s.to_ascii_lowercase());
+    if !matches!(
+        scheme.as_deref(),
+        Some("http" | "https" | "mailto" | "tel" | "sms" | "itms" | "itmss" | "itms-apps"),
+    ) {
+        log!("App tried to open URL {:?}, which no app handles", url_string);
+        return false;
+    }
     if let Err(e) = crate::window::open_url(env, &url_string) {
         echo!("App opened URL {:?} unsuccessfully ({}), quitting.", url_string, e);
     } else {
