@@ -16,14 +16,15 @@ private enum Movie {
 
 /// Holds the player, turned to the orientation the game asked for: some
 /// games' movies are made sideways for iPhone OS 3's landscape player. The
-/// interface itself stays in the game's orientation, the only one iOS
-/// allows while it's running, so the player is turned within it instead.
+/// interface itself keeps the game's orientations, the only ones iOS allows
+/// while it's running, so the player is turned within it instead.
 private final class MovieViewController: UIViewController {
     let player = AVPlayerViewController()
     let content = UIView()
-    var orientation = UIInterfaceOrientation.landscapeRight
-    /// The interface's orientation when the movie started.
-    var current = UIInterfaceOrientation.portrait
+    /// `.unknown` for the game's own.
+    var orientation = UIInterfaceOrientation.unknown
+    /// The game's orientations (SDL's view controller's).
+    var allowed = UIInterfaceOrientationMask.all
     var controls = true
 
     override func viewDidLoad() {
@@ -56,7 +57,10 @@ private final class MovieViewController: UIViewController {
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
-        let turn = angle(orientation) - angle(current)
+        let current = view.window?.windowScene?.effectiveGeometry
+            .interfaceOrientation ?? .unknown
+        let turn = orientation == .unknown || current == .unknown
+            ? 0 : angle(orientation) - angle(current)
         var size = view.bounds.size
         if Int((abs(turn) / (.pi / 2)).rounded()) % 2 == 1 {
             size = CGSize(width: size.height, height: size.width)
@@ -78,7 +82,7 @@ private final class MovieViewController: UIViewController {
     }
 
     override var supportedInterfaceOrientations: UIInterfaceOrientationMask {
-        UIInterfaceOrientationMask(rawValue: 1 << current.rawValue)
+        allowed
     }
     override var prefersStatusBarHidden: Bool { true }
     override var prefersHomeIndicatorAutoHidden: Bool { true }
@@ -99,12 +103,8 @@ public func idaredMoviePlay(
     controller.player.player = AVPlayer(playerItem: item)
     controller.controls = controls
     controller.orientation =
-        UIInterfaceOrientation(rawValue: Int(orientation)) ?? .landscapeRight
-    let scene = presenter.view.window?.windowScene
-    if let current = scene?.effectiveGeometry.interfaceOrientation,
-       current != .unknown {
-        controller.current = current
-    }
+        UIInterfaceOrientation(rawValue: Int(orientation)) ?? .unknown
+    controller.allowed = presenter.supportedInterfaceOrientations
     controller.modalPresentationStyle = .fullScreen
     Movie.endObserver = NotificationCenter.default.addObserver(
         forName: .AVPlayerItemDidPlayToEndTime,

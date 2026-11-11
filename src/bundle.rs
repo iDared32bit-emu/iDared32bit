@@ -159,6 +159,12 @@ impl Bundle {
             .map(|v| v.as_string().unwrap())
     }
 
+    /// The version of the SDK the app was built with, e.g. "3.2", if known.
+    pub fn sdk_version(&self) -> Option<&str> {
+        let name = self.plist.get("DTSDKName")?.as_string()?;
+        Some(name.trim_start_matches(|c: char| c.is_ascii_alphabetic()))
+    }
+
     pub fn required_device_capabilities(&self) -> Vec<&str> {
         self.plist
             .get("UIRequiredDeviceCapabilities")

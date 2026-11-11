@@ -9,7 +9,7 @@ use crate::dyld::{ConstantExports, HostConstant};
 use crate::frameworks::foundation::{ns_string, ns_url, NSInteger, NSTimeInterval};
 use crate::frameworks::uikit::ui_device::{
     UIDeviceOrientation, UIDeviceOrientationLandscapeLeft, UIDeviceOrientationLandscapeRight,
-    UIDeviceOrientationPortrait,
+    UIDeviceOrientationPortrait, UIDeviceOrientationUnknown,
 };
 use crate::objc::{
     id, msg, msg_class, nil, objc_classes, release, retain, todo_objc_setter, ClassExports,
@@ -25,7 +25,7 @@ use std::time::{Duration, Instant};
 /// `iphone/iDared32bit/MoviePlayer.swift`. `play` shows a movie file full
 /// screen, with or without controls, in the given orientation (a
 /// `UIInterfaceOrientation`, the same values as `UIDeviceOrientation`'s
-/// for these); `finished` says whether it has ended
+/// for these, or 0 for the game's own); `finished` says whether it has ended
 /// (or was closed by the user, or stopped); `stop` closes it.
 #[derive(Clone, Copy)]
 struct NativePlayer {
@@ -150,9 +150,7 @@ pub const CLASSES: ClassExports = objc_classes! {
         should_autoplay: true,
         control_style: 1, // MPMovieControlStyleDefault
         movie_control_mode: 0, // MPMovieControlModeDefault
-        // iPhone OS 3's player always plays in landscape, home button on the
-        // right, so some games' movies are made sideways for it.
-        orientation: UIDeviceOrientationLandscapeLeft,
+        orientation: default_orientation(env),
         use_application_audio_session: true,
         background_view: nil,
     });
@@ -351,6 +349,21 @@ pub const CLASSES: ClassExports = objc_classes! {
 @end
 
 };
+
+/// iPhone OS 3.1's player always plays in landscape, home button on the
+/// right, so some games' movies are made sideways for it. Games built for
+/// 3.2 and later get one that follows the game's orientation.
+fn default_orientation(env: &Environment) -> UIDeviceOrientation {
+    let version = env.bundle.sdk_version();
+    let version = version.or(env.bundle.minimum_os_version()).unwrap_or("");
+    let mut parts = version.split('.').map(|p| p.parse::<u32>().unwrap_or(0));
+    let version = (parts.next().unwrap_or(0), parts.next().unwrap_or(0));
+    if version >= (3, 2) {
+        UIDeviceOrientationUnknown
+    } else {
+        UIDeviceOrientationLandscapeLeft
+    }
+}
 
 /// Has the host play the player's movie, if it can. Returns `false` if it
 /// can't, so that playback is faked instead.
