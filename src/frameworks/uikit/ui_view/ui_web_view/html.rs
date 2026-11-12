@@ -8,7 +8,7 @@
 //! lists, `<pre>`, `<hr>`, `<font>`, bold, italic, underline, alignment,
 //! `bgcolor` and links, and CSS for those (tag, class and id selectors, with
 //! descendants). Other CSS, images and scripts are ignored (and logged), and
-//! tables' text flows as plain blocks.
+//! tables have one column: their cells flow one under another.
 
 use crate::frameworks::uikit::ui_font::FontFamily;
 
@@ -35,6 +35,8 @@ pub struct Style {
     pub link: Option<String>,
     align: Align,
     indent: f32,
+    /// Space kept free on the right, by tables.
+    right: f32,
     pre: bool,
 }
 
@@ -97,12 +99,15 @@ pub fn layout(html: &str, width: f32, measure: &mut dyn Measure) -> Page {
             link: None,
             align: Align::Left,
             indent: 0.0,
+            right: 0.0,
             pre: false,
         },
         link_color: (0.0, 0.0, 238.0 / 255.0, 1.0),
         stack: Vec::new(),
         rules: Vec::new(),
         lists: Vec::new(),
+        tables: Vec::new(),
+        row_cells: 0,
         y: 0.0,
         margin: MARGIN,
         line: Vec::new(),
@@ -137,14 +142,18 @@ struct Layout<'a> {
     rules: Vec<Rule>,
     /// Open lists: the next number for `<ol>`, `None` for `<ul>`.
     lists: Vec<Option<u32>>,
+    /// Open tables' space around their cells.
+    tables: Vec<f32>,
+    /// The cells so far in the table row.
+    row_cells: u32,
     /// The top of the next line.
     y: f32,
     /// The collapsed vertical margin before the next line.
     margin: f32,
     line: Vec<Fragment>,
     line_x: f32,
-    /// The alignment and indent of the line being filled.
-    line_start: Option<(Align, f32)>,
+    /// The alignment and indents of the line being filled.
+    line_start: Option<(Align, f32, f32)>,
     /// Whether a space comes before the next word.
     space: bool,
     /// A newline right after `<pre>` isn't shown.
@@ -156,8 +165,8 @@ impl Layout<'_> {
         self.stack.last().map_or(&self.base, |(_, style)| style)
     }
 
-    fn available(&self, indent: f32) -> f32 {
-        (self.width - 2.0 * MARGIN - indent).max(1.0)
+    fn available(&self, indent: f32, right: f32) -> f32 {
+        (self.width - 2.0 * MARGIN - indent - right).max(1.0)
     }
 
     fn push_text(&mut self, text: &str, style: &Style, break_before: bool) {
@@ -168,12 +177,13 @@ impl Layout<'_> {
             0.0
         };
         self.space = false;
-        let available = self.available(style.indent);
+        let available = self.available(style.indent, style.right);
         if break_before && !self.line.is_empty() && self.line_x + space + width > available {
             self.end_line(true);
             space = 0.0;
         }
-        self.line_start.get_or_insert((style.align, style.indent));
+        self.line_start
+            .get_or_insert((style.align, style.indent, style.right));
         let x = self.line_x + space;
         self.line_x = x + width;
         if let Some(last) = self.line.last_mut() {
@@ -206,7 +216,7 @@ impl Layout<'_> {
 
     /// `wrapped`: whether the line ends because the next word didn't fit.
     fn end_line(&mut self, wrapped: bool) {
-        let Some((align, indent)) = self.line_start.take() else {
+        let Some((align, indent, right)) = self.line_start.take() else {
             return;
         };
         let mut ascent: f32 = 0.0;
@@ -220,7 +230,7 @@ impl Layout<'_> {
         }
         self.y += self.margin;
         self.margin = 0.0;
-        let free = self.available(indent) - self.line_x;
+        let free = self.available(indent, right) - self.line_x;
         let offset = MARGIN
             + indent
             + match align {
@@ -351,7 +361,7 @@ impl Layout<'_> {
             "hr" => {
                 self.block(style.size / 2.0);
                 self.y += self.margin;
-                let width = self.available(style.indent);
+                let width = self.available(style.indent, style.right);
                 self.page.rules.push((MARGIN + style.indent, self.y, width));
                 self.y += 2.0;
                 self.margin = style.size / 2.0;
@@ -421,14 +431,34 @@ impl Layout<'_> {
                 margin = Some(if name == "dd" { 0.0 } else { 1.0 });
                 style.indent += 40.0;
             }
-            "li" | "div" | "center" | "dl" | "dt" | "tr" | "form" | "table" => margin = Some(0.0),
+            "li" | "div" | "center" | "dl" | "dt" | "tr" | "form" => margin = Some(0.0),
+            "table" => {
+                margin = Some(0.0);
+                // The table's width, then the space around its cells.
+                let available = self.available(style.indent, style.right);
+                let free = attr("width")
+                    .and_then(|w| html_length(w, available))
+                    .map_or(0.0, |width| (available - width).max(0.0));
+                match attr("align").map(str::to_ascii_lowercase).as_deref() {
+                    Some("center") => {
+                        style.indent += free / 2.0;
+                        style.right += free / 2.0;
+                    }
+                    Some("right") => style.indent += free,
+                    _ => style.right += free,
+                }
+                let inset = self.table_inset(attrs);
+                style.indent += inset;
+                style.right += inset;
+            }
             "td" => self.space = true,
             _ => (),
         }
         if name == "center" {
             style.align = Align::Center;
         }
-        if let Some(align) = attr("align") {
+        // A table's `align` places the table, not its text.
+        if let Some(align) = attr("align").filter(|_| name != "table") {
             style.align = match align.to_ascii_lowercase().as_str() {
                 "center" => Align::Center,
                 "right" => Align::Right,
@@ -456,7 +486,7 @@ impl Layout<'_> {
                 marker_style.link = None;
                 marker_style.underline = false;
                 let width = self.measure.width(&marker_style, &marker);
-                self.line_start = Some((style.align, style.indent));
+                self.line_start = Some((style.align, style.indent, style.right));
                 self.line.push(Fragment {
                     x: -width - 6.0,
                     y: 0.0,
@@ -466,7 +496,19 @@ impl Layout<'_> {
                     style: marker_style,
                 });
             }
-            "table" => self.unsupported("tables"),
+            "table" => {
+                let inset = self.table_inset(attrs);
+                self.tables.push(inset);
+                self.y += self.margin + inset;
+                self.margin = 0.0;
+            }
+            "tr" => self.row_cells = 0,
+            "td" | "th" => {
+                self.row_cells += 1;
+                if self.row_cells > 1 {
+                    self.unsupported("table columns");
+                }
+            }
             _ => (),
         }
         self.stack.push((element, style));
@@ -495,12 +537,38 @@ impl Layout<'_> {
                     0.0
                 });
             }
-            "div" | "center" | "li" | "dl" | "dt" | "dd" | "tr" | "table" | "form" => {
-                self.block(0.0)
+            "div" | "center" | "li" | "dl" | "dt" | "dd" | "tr" | "form" => self.block(0.0),
+            "table" => {
+                self.block(0.0);
+                self.y += self.margin + self.tables.pop().unwrap_or(0.0);
+                self.margin = 0.0;
             }
             "td" | "th" => self.space = true,
             _ => (),
         }
+    }
+
+    /// The space between a table's edge and its cells' contents: cell
+    /// spacing and padding, and borders.
+    fn table_inset(&mut self, attrs: &[(String, String)]) -> f32 {
+        let attr = |key: &str, default: f32| {
+            attrs
+                .iter()
+                .find(|(k, _)| k == key)
+                .map_or(Some(default), |(_, v)| html_length(v, 0.0))
+                .unwrap_or(default)
+        };
+        // `border` alone is 1. Cells get a 1px border too.
+        let border = attr("border", 0.0).max(0.0);
+        let border = match attrs.iter().find(|(k, _)| k == "border") {
+            Some((_, v)) if v.trim().is_empty() => 1.0,
+            _ => border,
+        };
+        if border > 0.0 {
+            self.unsupported("table borders");
+        }
+        let cells = if border > 0.0 { border + 1.0 } else { 0.0 };
+        attr("cellspacing", 2.0) + attr("cellpadding", 1.0) + cells
     }
 
     fn unsupported(&mut self, what: &str) {
@@ -906,6 +974,19 @@ fn css_font(font: &str, parent: f32, style: &mut Style) {
     style.family = font_family(&words[i + 1..].join(" ").replace(['"', '\''], ""));
 }
 
+/// An HTML `width` and similar, in pixels or a percentage of `whole`.
+fn html_length(value: &str, whole: f32) -> Option<f32> {
+    let value = value.trim();
+    match value.strip_suffix('%') {
+        Some(percent) => percent
+            .trim()
+            .parse::<f32>()
+            .ok()
+            .map(|p| p * whole / 100.0),
+        None => value.trim_end_matches("px").trim().parse().ok(),
+    }
+}
+
 /// `<font size>`: 1 to 7, or relative to 3 with `+` or `-`.
 fn font_size(size: &str, current: f32) -> f32 {
     let size = size.trim();
@@ -1237,6 +1318,22 @@ mod tests {
         // "aa bb cc" wraps, so it's stretched to 84 wide; the line before
         // the <br> and the last line aren't.
         assert_eq!(x, [8.0, 40.0, 72.0, 8.0, 38.0, 8.0, 38.0]);
+    }
+
+    #[test]
+    fn tables() {
+        let html = "<table width=\"60\" cellspacing=\"0\" cellpadding=\"0\">\
+                    <tr><td>aa bb cc</td></tr></table>\
+                    <table width=\"50%\" align=\"center\"><tr><td>dd</td></tr>\
+                    </table>x";
+        let page = layout(html, 120.0, &mut Fixed);
+        // Wrapped at 60 wide, not 104.
+        assert_eq!(texts(&page), ["aa bb", "cc", "dd", "x"]);
+        // 52 wide and centred, with 2 cell spacing and 1 padding inside.
+        let dd = &page.fragments[2];
+        assert_eq!((dd.x, dd.y), (8.0 + 26.0 + 3.0, 8.0 + 32.0 + 3.0));
+        assert_eq!(page.fragments[3].y, dd.y + 16.0 + 3.0);
+        assert!(page.unsupported.is_empty(), "{:?}", page.unsupported);
     }
 
     #[test]
