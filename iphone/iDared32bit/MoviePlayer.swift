@@ -6,13 +6,25 @@
 // Plays games' movies full screen with AVKit, for
 // src/frameworks/media_player/movie_player.rs.
 
+import AVFoundation
 import AVKit
 import UIKit
 
 private enum Movie {
     nonisolated(unsafe) static var controller: MovieViewController?
-    nonisolated(unsafe) static var window: UIWindow?
+    nonisolated(unsafe) static var window: MovieWindow?
     nonisolated(unsafe) static var endObserver: NSObjectProtocol?
+}
+
+/// The movie's window. A movie without controls can let touches through to
+/// the game's window below, as on iPhone OS 3.2 (e.g. to skip the movie).
+private final class MovieWindow: UIWindow {
+    var passesTouches = false
+
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        let view = super.hitTest(point, with: event)
+        return passesTouches ? nil : view
+    }
 }
 
 /// Holds the player, in its own window over SDL's, which SDL can't cover
@@ -96,6 +108,7 @@ public func idaredMoviePlay(
     _ path: UnsafePointer<CChar>,
     _ controls: Bool,
     _ orientation: Int32,
+    _ passesTouches: Bool,
 ) {
     idaredMovieStop()
     guard let presenter = topViewController() else {
@@ -117,8 +130,9 @@ public func idaredMoviePlay(
     }
     Movie.controller = controller
     let window = presenter.view.window?.windowScene.map {
-        UIWindow(windowScene: $0)
-    } ?? UIWindow(frame: UIScreen.main.bounds)
+        MovieWindow(windowScene: $0)
+    } ?? MovieWindow(frame: UIScreen.main.bounds)
+    window.passesTouches = passesTouches
     // Above SDL's window (normal + 2), so it can't cover the movie.
     let below = presenter.view.window?.windowLevel ?? .normal
     window.windowLevel = UIWindow.Level(rawValue: below.rawValue + 1)
@@ -148,6 +162,26 @@ public func idaredMovieStop() {
     Movie.window?.isHidden = true
     Movie.window?.rootViewController = nil
     Movie.window = nil
+}
+
+/// The movie's time in seconds, or 0 if there isn't one.
+@_cdecl("idared_movie_time")
+public func idaredMovieTime() -> Double {
+    guard let time = Movie.controller?.player.player?.currentTime(),
+          time.isNumeric else {
+        return 0
+    }
+    return time.seconds
+}
+
+@_cdecl("idared_movie_seek")
+public func idaredMovieSeek(_ seconds: Double) {
+    let time = CMTime(seconds: seconds, preferredTimescale: 600)
+    Movie.controller?.player.player?.seek(
+        to: time,
+        toleranceBefore: .zero,
+        toleranceAfter: .zero,
+    )
 }
 
 /// SDL's view controller, or whatever it's presenting.

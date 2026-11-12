@@ -25,13 +25,16 @@ use std::time::{Duration, Instant};
 /// `iphone/iDared32bit/MoviePlayer.swift`. `play` shows a movie file full
 /// screen, with or without controls, in the given orientation (a
 /// `UIInterfaceOrientation`, the same values as `UIDeviceOrientation`'s
-/// for these, or 0 for the game's own); `finished` says whether it has ended
-/// (or was closed by the user, or stopped); `stop` closes it.
+/// for these, or 0 for the game's own), passing touches on to the game if
+/// asked; `finished` says whether it has ended (or was closed by the user,
+/// or stopped); `stop` closes it; `time` and `seek` get and set the time.
 #[derive(Clone, Copy)]
 struct NativePlayer {
-    play: unsafe extern "C" fn(*const c_char, bool, i32),
+    play: unsafe extern "C" fn(*const c_char, bool, i32, bool),
     finished: unsafe extern "C" fn() -> bool,
     stop: unsafe extern "C" fn(),
+    time: unsafe extern "C" fn() -> f64,
+    seek: unsafe extern "C" fn(f64),
 }
 
 static NATIVE_PLAYER: OnceLock<NativePlayer> = OnceLock::new();
@@ -39,14 +42,18 @@ static NATIVE_PLAYER: OnceLock<NativePlayer> = OnceLock::new();
 /// Called by the iOS app's `main()`, like `idared_set_swiftui_app_picker`.
 #[no_mangle]
 pub extern "C" fn idared_set_movie_player(
-    play: unsafe extern "C" fn(*const c_char, bool, i32),
+    play: unsafe extern "C" fn(*const c_char, bool, i32, bool),
     finished: unsafe extern "C" fn() -> bool,
     stop: unsafe extern "C" fn(),
+    time: unsafe extern "C" fn() -> f64,
+    seek: unsafe extern "C" fn(f64),
 ) {
     let _ = NATIVE_PLAYER.set(NativePlayer {
         play,
         finished,
         stop,
+        time,
+        seek,
     });
 }
 
@@ -225,6 +232,22 @@ pub const CLASSES: ClassExports = objc_classes! {
     todo_objc_setter!(this, initial_time);
 }
 
+// Faked playback has no time: its movie isn't really playing.
+- (NSTimeInterval)currentPlaybackTime {
+    if State::get(env).native_player == Some(this) {
+        unsafe { (NATIVE_PLAYER.get().unwrap().time)() }
+    } else {
+        0.0
+    }
+}
+- (())setCurrentPlaybackTime:(NSTimeInterval)time {
+    if State::get(env).native_player == Some(this) {
+        unsafe { (NATIVE_PLAYER.get().unwrap().seek)(time) };
+    } else {
+        log!("TODO: [{:?} setCurrentPlaybackTime:{}] (faked playback)", this, time);
+    }
+}
+
 // Whether the content is a file or a stream: only a hint for loading it.
 - (MPMovieSourceType)movieSourceType {
     env.objc.borrow::<MPMoviePlayerControllerHostObject>(this).movie_source_type
@@ -354,15 +377,20 @@ pub const CLASSES: ClassExports = objc_classes! {
 /// right, so some games' movies are made sideways for it. Games built for
 /// 3.2 and later get one that follows the game's orientation.
 fn default_orientation(env: &Environment) -> UIDeviceOrientation {
-    let version = env.bundle.sdk_version();
-    let version = version.or(env.bundle.minimum_os_version()).unwrap_or("");
-    let mut parts = version.split('.').map(|p| p.parse::<u32>().unwrap_or(0));
-    let version = (parts.next().unwrap_or(0), parts.next().unwrap_or(0));
-    if version >= (3, 2) {
+    if built_for_3_2(env) {
         UIDeviceOrientationUnknown
     } else {
         UIDeviceOrientationLandscapeLeft
     }
+}
+
+/// Whether the game was built for iPhone OS 3.2 or later, where its movies
+/// play in a view inside its own.
+fn built_for_3_2(env: &Environment) -> bool {
+    let version = env.bundle.sdk_version();
+    let version = version.or(env.bundle.minimum_os_version()).unwrap_or("");
+    let mut parts = version.split('.').map(|p| p.parse::<u32>().unwrap_or(0));
+    (parts.next().unwrap_or(0), parts.next().unwrap_or(0)) >= (3, 2)
 }
 
 /// Has the host play the player's movie, if it can. Returns `false` if it
@@ -404,7 +432,10 @@ fn play_natively(env: &mut Environment, this: id) -> bool {
         return false;
     }
     let host_path = CString::new(host_path.to_str().unwrap()).unwrap();
-    unsafe { (native.play)(host_path.as_ptr(), controls, orientation) };
+    // On 3.2, touches on a movie without controls reach the game's views,
+    // e.g. to skip it. 3.1's player covered the whole screen.
+    let passes_touches = !controls && built_for_3_2(env);
+    unsafe { (native.play)(host_path.as_ptr(), controls, orientation, passes_touches) };
     retain(env, this);
     State::get(env).native_player = Some(this);
     true

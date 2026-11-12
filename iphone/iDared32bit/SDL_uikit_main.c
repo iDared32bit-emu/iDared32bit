@@ -23,11 +23,14 @@ extern void idared_set_swiftui_app_picker(idared_app_picker_fn);
 extern void idared_install_open_in_hook(void);
 /* Games' movies: Swift in MoviePlayer.swift. */
 #include <stdbool.h>
-extern void idared_movie_play(const char *, bool, int32_t);
+extern void idared_movie_play(const char *, bool, int32_t, bool);
 extern bool idared_movie_finished(void);
 extern void idared_movie_stop(void);
-extern void idared_set_movie_player(void (*)(const char *, bool, int32_t),
-                                    bool (*)(void), void (*)(void));
+extern double idared_movie_time(void);
+extern void idared_movie_seek(double);
+extern void idared_set_movie_player(
+    void (*)(const char *, bool, int32_t, bool), bool (*)(void),
+    void (*)(void), double (*)(void), void (*)(double));
 
 int
 main(int argc, char *argv[])
@@ -35,7 +38,8 @@ main(int argc, char *argv[])
     idared_set_swiftui_app_picker(idared_swiftui_app_picker);
     idared_install_open_in_hook();
     idared_set_movie_player(idared_movie_play, idared_movie_finished,
-                            idared_movie_stop);
+                            idared_movie_stop, idared_movie_time,
+                            idared_movie_seek);
     return SDL_UIKitRunApp(argc, argv, SDL_main);
 }
 #endif /* !SDL_MAIN_HANDLED */
