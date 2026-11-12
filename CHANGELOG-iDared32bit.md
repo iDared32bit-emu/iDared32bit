@@ -11,7 +11,6 @@ Usability:
 
 Compatibility:
 
-- Fixed crashes when starting some games that look up their own files.
 - Fixed a crash when starting some games made for iOS 4.
 - Fixed wrongly sized or sideways graphics in some landscape games.
 - Fixed a crash in some games when going back to an earlier screen.
@@ -27,6 +26,7 @@ Compatibility:
 - Web pages in games (help, about and credits screens) are now shown, with their colours and fonts.
 - Games no longer quit when opening a link that no app on the device could open.
 - Text in the Verdana font is now drawn with a much closer substitute.
+- Various small fixes.
 
 ## v1.5.2 (2026-11-07)
 
