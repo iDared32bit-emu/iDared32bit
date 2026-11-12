@@ -12,6 +12,8 @@ import UIKit
 private enum Movie {
     nonisolated(unsafe) static var controller: MovieViewController?
     nonisolated(unsafe) static var endObserver: NSObjectProtocol?
+    // TODO: remove once SpyMouse HD's black movie is understood.
+    nonisolated(unsafe) static var statusObserver: NSKeyValueObservation?
 }
 
 /// Holds the player, turned to the orientation the game asked for: some
@@ -113,8 +115,21 @@ public func idaredMoviePlay(
     ) { _ in
         idaredMovieStop()
     }
+    Movie.statusObserver = item.observe(\.status) { item, _ in
+        print(
+            "Movie: status \(item.status.rawValue),",
+            "size \(item.presentationSize),",
+            "error \(String(describing: item.error))",
+        )
+    }
     Movie.controller = controller
     presenter.present(controller, animated: false) {
+        print(
+            "Movie: presented by \(type(of: presenter)),",
+            "window \(String(describing: controller.view.window)),",
+            "frame \(controller.view.frame),",
+            "player \(controller.player.view.frame)",
+        )
         controller.player.player?.play()
     }
 }
@@ -131,6 +146,7 @@ public func idaredMovieStop() {
         NotificationCenter.default.removeObserver(observer)
         Movie.endObserver = nil
     }
+    Movie.statusObserver = nil
     guard let controller = Movie.controller else {
         return
     }
