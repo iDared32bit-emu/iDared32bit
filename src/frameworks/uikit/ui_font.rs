@@ -228,6 +228,7 @@ pub enum FontFamily {
     Sans,
     Serif,
     Mono,
+    Verdana,
 }
 
 /// A `UIFont` of a family and style, as `UIWebView`'s pages use.
@@ -252,6 +253,10 @@ pub fn font_with_style(
         (Mono, true, false) => FontKind::MonoBold,
         (Mono, false, true) => FontKind::MonoItalic,
         (Mono, true, true) => FontKind::MonoBoldItalic,
+        (Verdana, false, false) => FontKind::VerdanaRegular,
+        (Verdana, true, false) => FontKind::VerdanaBold,
+        (Verdana, false, true) => FontKind::VerdanaItalic,
+        (Verdana, true, true) => FontKind::VerdanaBoldItalic,
     };
     let font: id = msg_class![env; UIFont alloc];
     *env.objc.borrow_mut::<UIFontHostObject>(font) = UIFontHostObject { size, kind };

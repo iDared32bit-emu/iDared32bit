@@ -1011,6 +1011,9 @@ fn font_family(face: &str) -> FontFamily {
         if name.contains("times") || name.contains("georgia") || name == "serif" {
             return FontFamily::Serif;
         }
+        if name == "verdana" {
+            return FontFamily::Verdana;
+        }
         if !name.is_empty() {
             return FontFamily::Sans;
         }
@@ -1352,7 +1355,7 @@ mod tests {
         let [a, b, c, d] = &page.fragments[..] else {
             unreachable!();
         };
-        assert_eq!((a.style.size, a.style.family), (13.0, FontFamily::Sans));
+        assert_eq!((a.style.size, a.style.family), (13.0, FontFamily::Verdana));
         assert_eq!(a.style.color, (1.0, 1.0, 1.0, 1.0));
         // A paragraph's margin is in its own font size.
         assert_eq!(a.y, 13.0);
