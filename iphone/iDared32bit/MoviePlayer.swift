@@ -128,7 +128,9 @@ public func idaredMoviePlay(
     let window = presenter.view.window?.windowScene.map {
         UIWindow(windowScene: $0)
     } ?? UIWindow(frame: UIScreen.main.bounds)
-    window.windowLevel = UIWindow.Level(rawValue: UIWindow.Level.normal.rawValue + 1)
+    // Above SDL's window (normal + 2), so it can't cover the movie.
+    let below = presenter.view.window?.windowLevel ?? .normal
+    window.windowLevel = UIWindow.Level(rawValue: below.rawValue + 1)
     window.rootViewController = controller
     window.isHidden = false
     Movie.window = window
