@@ -26,6 +26,7 @@ Compatibility:
 - Added action sheets, so games that use them can offer their choices.
 - Web pages in games (help, about and credits screens) are now shown, with their colours and fonts.
 - Games no longer quit when opening a link that no app on the device could open.
+- Text in the Verdana font is now drawn with a much closer substitute.
 
 ## v1.5.2 (2026-11-07)
 

@@ -17,3 +17,11 @@ See `LICENSE.noto` for the license details.
 ## Caveat Brush fonts
 
 These are taken from the Caveat Brush release that was current as of 2026-09-22: https://github.com/googlefonts/caveat/tree/main/sources
+
+## DejaVu fonts
+
+These are taken from the DejaVu fonts release 2.37: https://github.com/dejavu-fonts/dejavu-fonts/releases/tag/version_2_37
+
+They're used for Verdana, which DejaVu Sans is very like.
+
+See `LICENSE.dejavu` for the license details.

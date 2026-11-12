@@ -120,6 +120,11 @@ impl Font {
             | "NotoSansJP-Bold.otf" => 1.125,
             // For Marker Felt.
             "CaveatBrush-Regular.ttf" => 1.35,
+            // For Verdana. Its (ascent - descent) / em, as for games' fonts.
+            "DejaVuSans.ttf"
+            | "DejaVuSans-Bold.ttf"
+            | "DejaVuSans-BoldOblique.ttf"
+            | "DejaVuSans-Oblique.ttf" => 1.164,
             // Unscaled until compared with iPhone OS.
             _ => 1.0,
         };
@@ -211,6 +216,18 @@ impl Font {
     }
     pub fn marker_felt() -> Font {
         Self::from_resource_file("CaveatBrush-Regular.ttf")
+    }
+    pub fn verdana_regular() -> Font {
+        Self::from_resource_file("DejaVuSans.ttf")
+    }
+    pub fn verdana_bold() -> Font {
+        Self::from_resource_file("DejaVuSans-Bold.ttf")
+    }
+    pub fn verdana_bold_italic() -> Font {
+        Self::from_resource_file("DejaVuSans-BoldOblique.ttf")
+    }
+    pub fn verdana_italic() -> Font {
+        Self::from_resource_file("DejaVuSans-Oblique.ttf")
     }
 
     pub fn units_per_em(&self) -> u16 {

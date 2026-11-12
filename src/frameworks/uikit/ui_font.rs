@@ -46,6 +46,10 @@ impl State {
                 FontKind::SerifBoldItalic => Font::serif_bold_italic(),
                 FontKind::SerifItalic => Font::serif_italic(),
                 FontKind::MarkerFelt => Font::marker_felt(),
+                FontKind::VerdanaRegular => Font::verdana_regular(),
+                FontKind::VerdanaBold => Font::verdana_bold(),
+                FontKind::VerdanaBoldItalic => Font::verdana_bold_italic(),
+                FontKind::VerdanaItalic => Font::verdana_italic(),
                 FontKind::App(_) => unreachable!(),
             })
     }
@@ -66,6 +70,10 @@ enum FontKind {
     SerifBoldItalic,
     SerifItalic,
     MarkerFelt,
+    VerdanaRegular,
+    VerdanaBold,
+    VerdanaBoldItalic,
+    VerdanaItalic,
     /// A font the app bundles, by its index in `UIAppFonts`.
     App(usize),
 }
@@ -320,13 +328,13 @@ fn get_font<'a>(state: &'a mut State, kind: FontKind, text: &str) -> &'a Font {
            (0x3400..=0x4DBF).contains(&c) { // more kanji
             match kind {
                 // CJK has no italic equivalent
-                FontKind::MonoRegular | FontKind::MonoItalic | FontKind::SansRegular | FontKind::SansItalic | FontKind::SerifRegular | FontKind::SerifItalic | FontKind::App(_) => {
+                FontKind::MonoRegular | FontKind::MonoItalic | FontKind::SansRegular | FontKind::SansItalic | FontKind::SerifRegular | FontKind::SerifItalic | FontKind::VerdanaRegular | FontKind::VerdanaItalic | FontKind::App(_) => {
                     if state.sans_regular_ja.is_none() {
                         state.sans_regular_ja = Some(Font::sans_regular_ja());
                     }
                     return state.sans_regular_ja.as_ref().unwrap();
                 },
-                FontKind::MonoBold | FontKind::MonoBoldItalic | FontKind::SansBold | FontKind::SansBoldItalic | FontKind::SerifBold | FontKind::SerifBoldItalic => {
+                FontKind::MonoBold | FontKind::MonoBoldItalic | FontKind::SansBold | FontKind::SansBoldItalic | FontKind::SerifBold | FontKind::SerifBoldItalic | FontKind::VerdanaBold | FontKind::VerdanaBoldItalic => {
                     if state.sans_bold_ja.is_none() {
                         state.sans_bold_ja = Some(Font::sans_bold_ja());
                     }
@@ -592,10 +600,10 @@ fn get_equivalent_font(system_font: &str) -> Option<FontKind> {
         // Font Family: DB LCD Temp
         "DBLCDTempBlack" => None,
         // Font Family: Verdana
-        "Verdana-Bold" => None,
-        "Verdana-BoldItalic" => None,
-        "Verdana" => None,
-        "Verdana-Italic" => None,
+        "Verdana-Bold" => Some(FontKind::VerdanaBold),
+        "Verdana-BoldItalic" => Some(FontKind::VerdanaBoldItalic),
+        "Verdana" => Some(FontKind::VerdanaRegular),
+        "Verdana-Italic" => Some(FontKind::VerdanaItalic),
         // Font Family: Times New Roman
         "TimesNewRomanPSMT" => Some(FontKind::SerifRegular),
         "TimesNewRomanPS-BoldMT" => Some(FontKind::SerifBold),

@@ -244,6 +244,11 @@ This distribution of iDared 32bit includes Caveat Brush fonts, available under t
 following license:
 ";
 
+const INTERNAL_DEJAVU_FONTS_DESCRIPTION: &str = "
+This distribution of iDared 32bit includes DejaVu Sans fonts, available under the
+following license:
+";
+
 /// The license files read below, embedded for iOS: users can't open the
 /// app bundle, and the files aren't at these paths inside it.
 fn embedded_in_file(path: &str) -> Option<&'static str> {
@@ -262,6 +267,7 @@ fn embedded_in_file(path: &str) -> Option<&'static str> {
         file!("touchHLE_fonts/LICENSE.liberation"),
         file!("touchHLE_fonts/LICENSE.noto"),
         file!("touchHLE_fonts/LICENSE.caveatbrush"),
+        file!("touchHLE_fonts/LICENSE.dejavu"),
     ];
     // The keys are the files' paths in the repository, which differ from
     // the iOS app bundle's for the fonts.
@@ -468,6 +474,13 @@ fn print(out: &mut String, resources_are_external_files: bool) -> Result<(), std
             out,
             "{}",
             read_bundled_file(&format!("{}/LICENSE.caveatbrush", crate::paths::FONTS_DIR))
+        )?;
+        divider(out)?;
+        writeln!(out, "{INTERNAL_DEJAVU_FONTS_DESCRIPTION}")?;
+        writeln!(
+            out,
+            "{}",
+            read_bundled_file(&format!("{}/LICENSE.dejavu", crate::paths::FONTS_DIR))
         )?;
     }
     Ok(())
