@@ -19,6 +19,8 @@ pub enum Align {
     Left,
     Center,
     Right,
+    /// Lines that wrap are stretched to both edges.
+    Justify,
 }
 
 #[derive(Clone, PartialEq, Debug)]
@@ -168,14 +170,18 @@ impl Layout<'_> {
         self.space = false;
         let available = self.available(style.indent);
         if break_before && !self.line.is_empty() && self.line_x + space + width > available {
-            self.finish_line();
+            self.end_line(true);
             space = 0.0;
         }
         self.line_start.get_or_insert((style.align, style.indent));
         let x = self.line_x + space;
         self.line_x = x + width;
         if let Some(last) = self.line.last_mut() {
-            if last.style == *style && last.x + last.width == x - space {
+            // Justified words are moved apart, so each is kept on its own.
+            if last.style == *style
+                && last.x + last.width == x - space
+                && style.align != Align::Justify
+            {
                 if space > 0.0 {
                     last.text.push(' ');
                 }
@@ -195,6 +201,11 @@ impl Layout<'_> {
     }
 
     fn finish_line(&mut self) {
+        self.end_line(false);
+    }
+
+    /// `wrapped`: whether the line ends because the next word didn't fit.
+    fn end_line(&mut self, wrapped: bool) {
         let Some((align, indent)) = self.line_start.take() else {
             return;
         };
@@ -213,12 +224,35 @@ impl Layout<'_> {
         let offset = MARGIN
             + indent
             + match align {
-                Align::Left => 0.0,
+                Align::Left | Align::Justify => 0.0,
                 Align::Center => (free / 2.0).max(0.0),
                 Align::Right => free.max(0.0),
             };
-        for (mut fragment, (a, height)) in self.line.drain(..).zip(metrics) {
-            fragment.x += offset;
+        // The words after a space, which a justified line moves along.
+        let mut end = None;
+        let spaced: Vec<bool> = self
+            .line
+            .iter()
+            .map(|f| {
+                let spaced = end.is_some_and(|end| f.x > end);
+                // Not after a list's marker.
+                end = (f.x >= 0.0).then_some(f.x + f.width);
+                spaced
+            })
+            .collect();
+        let gaps = spaced.iter().filter(|&&s| s).count();
+        let extra = if wrapped && align == Align::Justify && free > 0.0 && gaps > 0 {
+            free / gaps as f32
+        } else {
+            0.0
+        };
+        let mut shift = 0.0;
+        let line = self.line.drain(..).zip(metrics).zip(spaced);
+        for ((mut fragment, (a, height)), spaced) in line {
+            if spaced {
+                shift += extra;
+            }
+            fragment.x += offset + shift;
             fragment.y = self.y + (ascent - a);
             fragment.height = height;
             self.page.fragments.push(fragment);
@@ -398,6 +432,7 @@ impl Layout<'_> {
             style.align = match align.to_ascii_lowercase().as_str() {
                 "center" => Align::Center,
                 "right" => Align::Right,
+                "justify" => Align::Justify,
                 _ => Align::Left,
             };
         }
@@ -594,7 +629,8 @@ impl Layout<'_> {
                 }
             }
             "text-align" => match value.as_str() {
-                "left" | "justify" | "start" | "-webkit-left" => style.align = Align::Left,
+                "left" | "start" | "-webkit-left" => style.align = Align::Left,
+                "justify" => style.align = Align::Justify,
                 "center" | "-webkit-center" => style.align = Align::Center,
                 "right" | "end" | "-webkit-right" => style.align = Align::Right,
                 _ => (),
@@ -1190,6 +1226,17 @@ mod tests {
         let page = layout("<center>ab</center><p>x<p>y", 120.0, &mut Fixed);
         assert_eq!(page.fragments[0].x, 8.0 + (104.0 - 20.0) / 2.0);
         assert_eq!(page.fragments[2].y - page.fragments[1].y, 32.0);
+    }
+
+    #[test]
+    fn justified() {
+        let html = "<p align=\"justify\">aa <b>bb</b> cc dd ee<br>ff gg</p>";
+        let page = layout(html, 100.0, &mut Fixed);
+        assert_eq!(texts(&page), ["aa", "bb", "cc", "dd", "ee", "ff", "gg"]);
+        let x: Vec<f32> = page.fragments.iter().map(|f| f.x).collect();
+        // "aa bb cc" wraps, so it's stretched to 84 wide; the line before
+        // the <br> and the last line aren't.
+        assert_eq!(x, [8.0, 40.0, 72.0, 8.0, 38.0, 8.0, 38.0]);
     }
 
     #[test]
