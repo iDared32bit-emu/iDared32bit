@@ -24,7 +24,7 @@ Compatibility:
 - Fixed crashes in some games that slide between screens.
 - Added tab bars, so games that use them can switch between their screens.
 - Added action sheets, so games that use them can offer their choices.
-- Web pages in games (help, about and credits screens) are now shown.
+- Web pages in games (help, about and credits screens) are now shown, with their colours and fonts.
 - Games no longer quit when opening a link that no app on the device could open.
 
 ## v1.5.2 (2026-11-07)

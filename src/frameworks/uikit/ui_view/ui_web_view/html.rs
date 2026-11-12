@@ -6,7 +6,8 @@
 //! Lays out the simple HTML pages games show in a `UIWebView` (help, about,
 //! credits). Not a browser: it knows text, paragraphs, headings, line breaks,
 //! lists, `<pre>`, `<hr>`, `<font>`, bold, italic, underline, alignment,
-//! `bgcolor` and links. CSS, images and scripts are ignored (and logged), and
+//! `bgcolor` and links, and CSS for those (tag, class and id selectors, with
+//! descendants). Other CSS, images and scripts are ignored (and logged), and
 //! tables' text flows as plain blocks.
 
 use crate::frameworks::uikit::ui_font::FontFamily;
@@ -55,7 +56,7 @@ pub struct Page {
     pub rules: Vec<(f32, f32, f32)>,
     pub height: f32,
     /// Things the page has that aren't shown, for logging.
-    pub unsupported: Vec<&'static str>,
+    pub unsupported: Vec<String>,
 }
 
 /// Text measurement, from the fonts that will draw it.
@@ -98,6 +99,7 @@ pub fn layout(html: &str, width: f32, measure: &mut dyn Measure) -> Page {
         },
         link_color: (0.0, 0.0, 238.0 / 255.0, 1.0),
         stack: Vec::new(),
+        rules: Vec::new(),
         lists: Vec::new(),
         y: 0.0,
         margin: MARGIN,
@@ -112,6 +114,7 @@ pub fn layout(html: &str, width: f32, measure: &mut dyn Measure) -> Page {
             Token::Open(name, attrs) => layout.open(&name, &attrs),
             Token::Close(name) => layout.close(&name),
             Token::Text(text) => layout.text(&text),
+            Token::Css(css) => layout.stylesheet(&css),
         }
     }
     layout.finish_line();
@@ -127,7 +130,9 @@ struct Layout<'a> {
     base: Style,
     link_color: Rgba,
     /// Open elements and their styles.
-    stack: Vec<(String, Style)>,
+    stack: Vec<(Element, Style)>,
+    /// The page's `<style>` rules, in order.
+    rules: Vec<Rule>,
     /// Open lists: the next number for `<ol>`, `None` for `<ul>`.
     lists: Vec<Option<u32>>,
     /// The top of the next line.
@@ -297,14 +302,16 @@ impl Layout<'_> {
                 | "h5"
                 | "h6"
         );
-        if (ends_p && self.stack.last().is_some_and(|(n, _)| n == "p"))
-            || (name == "li" && self.stack.last().is_some_and(|(n, _)| n == "li"))
+        if (ends_p && self.stack.last().is_some_and(|(e, _)| e.name == "p"))
+            || (name == "li" && self.stack.last().is_some_and(|(e, _)| e.name == "li"))
         {
-            let open = self.stack.last().unwrap().0.clone();
+            let open = self.stack.last().unwrap().0.name.clone();
             self.close(&open);
         }
 
         let mut style = self.style().clone();
+        // The block's vertical margin, in ems of its font size (after CSS).
+        let mut margin = None;
         match name {
             "br" => return self.line_break(),
             "hr" => {
@@ -317,18 +324,23 @@ impl Layout<'_> {
                 return;
             }
             "img" => return self.unsupported("images"),
-            "meta" | "link" | "base" | "input" | "col" | "area" | "param" | "wbr" => return,
+            "link" => {
+                if attr("rel").is_some_and(|r| r.eq_ignore_ascii_case("stylesheet")) {
+                    self.unsupported("linked CSS");
+                }
+                return;
+            }
+            "meta" | "base" | "input" | "col" | "area" | "param" | "wbr" => return,
             "body" => {
                 if let Some(color) = attr("bgcolor").and_then(parse_color) {
                     self.page.background = Some(color);
                 }
                 if let Some(color) = attr("text").and_then(parse_color) {
-                    self.base.color = color;
+                    style.color = color;
                 }
                 if let Some(color) = attr("link").and_then(parse_color) {
                     self.link_color = color;
                 }
-                return;
             }
             "font" => {
                 if let Some(size) = attr("size") {
@@ -354,31 +366,50 @@ impl Layout<'_> {
                     style.color = self.link_color;
                 }
             }
-            "p" => self.block(style.size),
+            "p" => margin = Some(1.0),
             "h1" | "h2" | "h3" | "h4" | "h5" | "h6" => {
-                let (size, margin) = HEADINGS[usize::from(name.as_bytes()[1] - b'1')];
+                let (size, ems) = HEADINGS[usize::from(name.as_bytes()[1] - b'1')];
                 style.size = size;
                 style.bold = true;
-                self.block(size * margin);
+                margin = Some(ems);
             }
             "pre" => {
                 style.family = FontFamily::Mono;
                 style.size = 13.0;
                 style.pre = true;
-                self.pre_start = true;
-                self.block(style.size);
+                margin = Some(1.0);
             }
             "ul" | "ol" => {
-                self.block(if self.lists.is_empty() {
-                    style.size
-                } else {
-                    0.0
-                });
-                self.lists.push((name == "ol").then_some(1));
+                margin = Some(if self.lists.is_empty() { 1.0 } else { 0.0 });
                 style.indent += 40.0;
             }
+            "blockquote" | "dd" => {
+                margin = Some(if name == "dd" { 0.0 } else { 1.0 });
+                style.indent += 40.0;
+            }
+            "li" | "div" | "center" | "dl" | "dt" | "tr" | "form" | "table" => margin = Some(0.0),
+            "td" => self.space = true,
+            _ => (),
+        }
+        if name == "center" {
+            style.align = Align::Center;
+        }
+        if let Some(align) = attr("align") {
+            style.align = match align.to_ascii_lowercase().as_str() {
+                "center" => Align::Center,
+                "right" => Align::Right,
+                _ => Align::Left,
+            };
+        }
+        let element = Element::new(name, attrs);
+        self.cascade(&element, attr("style"), &mut style);
+        if let Some(ems) = margin {
+            self.block(style.size * ems);
+        }
+        match name {
+            "pre" => self.pre_start = true,
+            "ul" | "ol" => self.lists.push((name == "ol").then_some(1)),
             "li" => {
-                self.block(0.0);
                 let marker = match self.lists.last_mut() {
                     Some(Some(n)) => {
                         *n += 1;
@@ -400,39 +431,17 @@ impl Layout<'_> {
                     style: marker_style,
                 });
             }
-            "blockquote" | "dd" => {
-                self.block(if name == "dd" { 0.0 } else { style.size });
-                style.indent += 40.0;
-            }
-            "div" | "center" | "dl" | "dt" | "tr" | "form" => self.block(0.0),
-            "table" => {
-                self.unsupported("tables");
-                self.block(0.0);
-            }
-            "td" => self.space = true,
+            "table" => self.unsupported("tables"),
             _ => (),
         }
-        if name == "center" {
-            style.align = Align::Center;
-        }
-        if let Some(align) = attr("align") {
-            style.align = match align.to_ascii_lowercase().as_str() {
-                "center" => Align::Center,
-                "right" => Align::Right,
-                _ => Align::Left,
-            };
-        }
-        if attr("style").is_some() {
-            self.unsupported("CSS");
-        }
-        self.stack.push((name.to_string(), style));
+        self.stack.push((element, style));
     }
 
     fn close(&mut self, name: &str) {
         if name == "br" {
             return self.line_break();
         }
-        let Some(i) = self.stack.iter().rposition(|(n, _)| n == name) else {
+        let Some(i) = self.stack.iter().rposition(|(e, _)| e.name == name) else {
             return;
         };
         let style = self.stack[i].1.clone();
@@ -459,11 +468,406 @@ impl Layout<'_> {
         }
     }
 
-    fn unsupported(&mut self, what: &'static str) {
-        if !self.page.unsupported.contains(&what) {
-            self.page.unsupported.push(what);
+    fn unsupported(&mut self, what: &str) {
+        if !self.page.unsupported.iter().any(|w| w == what) {
+            self.page.unsupported.push(what.to_string());
         }
     }
+
+    /// Adds a `<style>`'s rules.
+    fn stylesheet(&mut self, css: &str) {
+        let css = strip_comments(css).replace("<!--", "").replace("-->", "");
+        let mut rest = css.as_str();
+        while let Some(open) = rest.find('{') {
+            // The matching '}', after any nested blocks.
+            let mut depth = 0;
+            let close = rest[open..]
+                .find(|c| {
+                    match c {
+                        '{' => depth += 1,
+                        '}' => depth -= 1,
+                        _ => (),
+                    }
+                    depth == 0
+                })
+                .map_or(rest.len(), |i| open + i);
+            // Statements like `@import "a.css";` can come first.
+            let mut statements: Vec<&str> = rest[..open].split(';').collect();
+            let prelude = statements.pop().unwrap().trim();
+            let body = rest.get(open + 1..close).unwrap_or("");
+            rest = rest.get(close + 1..).unwrap_or("");
+            if statements.iter().any(|s| s.trim().starts_with('@')) {
+                self.unsupported("CSS @-rules");
+            }
+            if prelude.starts_with('@') {
+                self.unsupported("CSS @-rules");
+                continue;
+            }
+            let declarations = parse_declarations(body);
+            for selector in prelude.split(',') {
+                match parse_selector(selector) {
+                    Some((selector, specificity)) => self.rules.push(Rule {
+                        selector,
+                        specificity,
+                        declarations: declarations.clone(),
+                    }),
+                    None => self.unsupported("CSS selectors"),
+                }
+            }
+        }
+    }
+
+    /// Applies the page's CSS for an element to its style.
+    fn cascade(&mut self, element: &Element, inline: Option<&str>, style: &mut Style) {
+        let ancestors: Vec<&Element> = self.stack.iter().map(|(e, _)| e).collect();
+        let mut declarations: Vec<_> = self
+            .rules
+            .iter()
+            .enumerate()
+            .filter(|(_, rule)| rule.matches(element, &ancestors))
+            .flat_map(|(order, rule)| {
+                rule.declarations
+                    .iter()
+                    .map(move |d| ((d.important, rule.specificity, order), d.clone()))
+            })
+            .collect();
+        let inline = inline.map(parse_declarations).unwrap_or_default();
+        declarations.extend(
+            inline
+                .into_iter()
+                .map(|d| ((d.important, (1, 0, 0, 0), usize::MAX), d)),
+        );
+        declarations.sort_by_key(|(key, _)| *key);
+        let parent = self.style().size;
+        for (_, declaration) in declarations {
+            self.apply(element, &declaration, parent, style);
+        }
+    }
+
+    fn apply(&mut self, element: &Element, d: &Declaration, parent: f32, style: &mut Style) {
+        let value = d.value.to_ascii_lowercase();
+        match d.name.as_str() {
+            "color" => {
+                if let Some(color) = parse_color(&value) {
+                    style.color = color;
+                }
+            }
+            "background" | "background-color" => {
+                if value.contains("url(") {
+                    self.unsupported("CSS background images");
+                }
+                let color =
+                    parse_color(&value).or_else(|| value.split_whitespace().find_map(parse_color));
+                match color {
+                    Some(color) if matches!(element.name.as_str(), "html" | "body") => {
+                        self.page.background = Some(color);
+                    }
+                    Some(_) => self.unsupported("CSS backgrounds"),
+                    None => (),
+                }
+            }
+            "font-family" => style.family = font_family(&value.replace(['"', '\''], "")),
+            "font-size" => {
+                if let Some(size) = css_font_size(&value, parent) {
+                    style.size = size;
+                }
+            }
+            "font-weight" => {
+                if let Some(bold) = css_bold(&value) {
+                    style.bold = bold;
+                }
+            }
+            "font-style" => match value.as_str() {
+                "italic" | "oblique" => style.italic = true,
+                "normal" => style.italic = false,
+                _ => (),
+            },
+            "font" => css_font(&value, parent, style),
+            "text-decoration" => {
+                if value.contains("underline") {
+                    style.underline = true;
+                } else if value == "none" {
+                    style.underline = false;
+                }
+                if value.contains("line-through") || value.contains("overline") {
+                    self.unsupported("CSS text-decoration");
+                }
+            }
+            "text-align" => match value.as_str() {
+                "left" | "justify" | "start" | "-webkit-left" => style.align = Align::Left,
+                "center" | "-webkit-center" => style.align = Align::Center,
+                "right" | "end" | "-webkit-right" => style.align = Align::Right,
+                _ => (),
+            },
+            // Nothing to show for these.
+            "-webkit-user-select"
+            | "-webkit-touch-callout"
+            | "-webkit-tap-highlight-color"
+            | "-webkit-text-size-adjust"
+            | "cursor" => (),
+            name => self.unsupported(&format!("CSS {}", name)),
+        }
+    }
+}
+
+/// An element, as CSS selectors see it.
+struct Element {
+    name: String,
+    id: Option<String>,
+    classes: Vec<String>,
+    /// An `<a>` with an `href`.
+    link: bool,
+}
+
+impl Element {
+    fn new(name: &str, attrs: &[(String, String)]) -> Element {
+        let attr = |key: &str| {
+            attrs
+                .iter()
+                .find(|(k, _)| k == key)
+                .map(|(_, v)| v.as_str())
+        };
+        Element {
+            name: name.to_string(),
+            id: attr("id").map(str::to_string),
+            classes: attr("class")
+                .map(|c| c.split_whitespace().map(str::to_string).collect())
+                .unwrap_or_default(),
+            link: name == "a" && attr("href").is_some(),
+        }
+    }
+}
+
+/// Inline, ids, classes and tags.
+type Specificity = (u32, u32, u32, u32);
+
+#[derive(Clone)]
+struct Declaration {
+    name: String,
+    value: String,
+    important: bool,
+}
+
+/// A `<style>` rule, one for each of its selectors.
+struct Rule {
+    selector: Vec<Part>,
+    specificity: Specificity,
+    declarations: Vec<Declaration>,
+}
+
+impl Rule {
+    fn matches(&self, element: &Element, ancestors: &[&Element]) -> bool {
+        let (subject, rest) = self.selector.split_last().unwrap();
+        subject.matches(element) && matches_ancestors(rest, subject.child, ancestors)
+    }
+}
+
+/// A part of a selector, like `p.note`.
+struct Part {
+    tag: Option<String>,
+    id: Option<String>,
+    classes: Vec<String>,
+    /// `:link` or `:visited`.
+    link: bool,
+    /// `:hover`, `:active` or `:focus`, which nothing is.
+    never: bool,
+    /// Whether it must be a child (`>`) of the part before it, not just a
+    /// descendant.
+    child: bool,
+}
+
+impl Part {
+    fn matches(&self, element: &Element) -> bool {
+        !self.never
+            && self.tag.as_ref().is_none_or(|tag| *tag == element.name)
+            && self
+                .id
+                .as_ref()
+                .is_none_or(|id| element.id.as_ref() == Some(id))
+            && self.classes.iter().all(|c| element.classes.contains(c))
+            && (!self.link || element.link)
+    }
+}
+
+/// Whether `parts`, the ones before the part that matched, match the
+/// element's ancestors (innermost last). `child`: whether the last of them
+/// must be the parent.
+fn matches_ancestors(parts: &[Part], child: bool, ancestors: &[&Element]) -> bool {
+    let Some((last, rest)) = parts.split_last() else {
+        return true;
+    };
+    let start = if child {
+        ancestors.len().saturating_sub(1)
+    } else {
+        0
+    };
+    (start..ancestors.len())
+        .rev()
+        .any(|i| last.matches(ancestors[i]) && matches_ancestors(rest, last.child, &ancestors[..i]))
+}
+
+/// A selector made of tags, classes, ids and `:link`, joined by descendant
+/// or child combinators. `None` for anything else.
+fn parse_selector(selector: &str) -> Option<(Vec<Part>, Specificity)> {
+    let mut parts = Vec::new();
+    let mut specificity = (0, 0, 0, 0);
+    let mut child = false;
+    for word in selector.replace('>', " > ").split_whitespace() {
+        if word == ">" {
+            child = true;
+            continue;
+        }
+        if word.contains(['+', '~', '[']) {
+            return None;
+        }
+        let mut part = Part {
+            tag: None,
+            id: None,
+            classes: Vec::new(),
+            link: false,
+            never: false,
+            child: std::mem::take(&mut child),
+        };
+        let end = word.find(['.', '#', ':']).unwrap_or(word.len());
+        if !matches!(&word[..end], "" | "*") {
+            part.tag = Some(word[..end].to_ascii_lowercase());
+            specificity.3 += 1;
+        }
+        let mut rest = &word[end..];
+        while let Some(kind) = rest.chars().next() {
+            let body = &rest[1..];
+            let end = body.find(['.', '#', ':']).unwrap_or(body.len());
+            let name = &body[..end];
+            rest = &body[end..];
+            match kind {
+                '.' => {
+                    part.classes.push(name.to_string());
+                    specificity.2 += 1;
+                }
+                '#' => {
+                    part.id = Some(name.to_string());
+                    specificity.1 += 1;
+                }
+                _ => {
+                    match name.to_ascii_lowercase().as_str() {
+                        "link" | "visited" => part.link = true,
+                        "hover" | "active" | "focus" => part.never = true,
+                        _ => return None,
+                    }
+                    specificity.2 += 1;
+                }
+            }
+        }
+        parts.push(part);
+    }
+    if child || parts.is_empty() {
+        return None;
+    }
+    Some((parts, specificity))
+}
+
+fn parse_declarations(css: &str) -> Vec<Declaration> {
+    css.split(';')
+        .filter_map(|declaration| {
+            let (name, value) = declaration.split_once(':')?;
+            let value = value.trim();
+            let (value, important) = match value.split_once('!') {
+                Some((v, flag)) if flag.trim().eq_ignore_ascii_case("important") => {
+                    (v.trim(), true)
+                }
+                _ => (value, false),
+            };
+            Some(Declaration {
+                name: name.trim().to_ascii_lowercase(),
+                value: value.to_string(),
+                important,
+            })
+        })
+        .collect()
+}
+
+fn strip_comments(css: &str) -> String {
+    let mut out = String::new();
+    let mut rest = css;
+    while let Some(i) = rest.find("/*") {
+        out.push_str(&rest[..i]);
+        let after = &rest[i + 2..];
+        rest = after.find("*/").map_or("", |j| &after[j + 2..]);
+    }
+    out.push_str(rest);
+    out
+}
+
+/// A CSS `font-size`, given the parent's.
+fn css_font_size(size: &str, parent: f32) -> Option<f32> {
+    Some(match size {
+        "xx-small" => 9.0,
+        "x-small" => 10.0,
+        "small" => 13.0,
+        "medium" => 16.0,
+        "large" => 18.0,
+        "x-large" => 24.0,
+        "xx-large" => 32.0,
+        "smaller" => parent / 1.2,
+        "larger" => parent * 1.2,
+        _ => css_length(size, parent).filter(|&size| size > 0.0)?,
+    })
+}
+
+/// A CSS length in pixels (points on iPhone OS), with `em` as given.
+fn css_length(length: &str, em: f32) -> Option<f32> {
+    let end = length
+        .find(|c: char| !(c.is_ascii_digit() || matches!(c, '.' | '-' | '+')))
+        .unwrap_or(length.len());
+    let n: f32 = length[..end].parse().ok()?;
+    Some(match &length[end..] {
+        // Old pages leave the unit out, which WebKit's quirks mode allows.
+        "px" | "" => n,
+        "pt" => n * 4.0 / 3.0,
+        "pc" => n * 16.0,
+        "in" => n * 96.0,
+        "cm" => n * 96.0 / 2.54,
+        "mm" => n * 96.0 / 25.4,
+        "em" => n * em,
+        "ex" => n * em / 2.0,
+        "%" => n * em / 100.0,
+        "rem" => n * 16.0,
+        _ => return None,
+    })
+}
+
+fn css_bold(weight: &str) -> Option<bool> {
+    match weight {
+        "bold" | "bolder" => Some(true),
+        "normal" | "lighter" => Some(false),
+        n => n.parse::<u32>().ok().map(|n| n >= 600),
+    }
+}
+
+/// The `font` shorthand: style and weight, size (and line height), family.
+fn css_font(font: &str, parent: f32, style: &mut Style) {
+    let words: Vec<&str> = font.split_whitespace().collect();
+    // Weights like 700 have no unit, sizes do.
+    let size = words.iter().enumerate().find_map(|(i, word)| {
+        let size = word.split('/').next().unwrap();
+        if size.bytes().all(|b| b.is_ascii_digit()) {
+            return None;
+        }
+        Some((i, css_font_size(size, parent)?))
+    });
+    let Some((i, size)) = size.filter(|&(i, _)| i + 1 < words.len()) else {
+        return;
+    };
+    style.italic = false;
+    style.bold = false;
+    for word in &words[..i] {
+        match *word {
+            "italic" | "oblique" => style.italic = true,
+            word => style.bold = css_bold(word).unwrap_or(style.bold),
+        }
+    }
+    style.size = size;
+    style.family = font_family(&words[i + 1..].join(" ").replace(['"', '\''], ""));
 }
 
 /// `<font size>`: 1 to 7, or relative to 3 with `+` or `-`.
@@ -499,6 +903,26 @@ fn font_family(face: &str) -> FontFamily {
 
 fn parse_color(color: &str) -> Option<Rgba> {
     let color = color.trim().to_ascii_lowercase();
+    let rgb = color
+        .strip_prefix("rgb(")
+        .or_else(|| color.strip_prefix("rgba("))
+        .and_then(|args| args.strip_suffix(')'));
+    if let Some(args) = rgb {
+        let channels: Vec<f32> = args
+            .split(',')
+            .map(|c| match c.trim().strip_suffix('%') {
+                Some(percent) => percent.parse().map(|p: f32| p * 2.55),
+                None => c.trim().parse(),
+            })
+            .collect::<Result<_, _>>()
+            .ok()?;
+        let channel = |c: f32| c.clamp(0.0, 255.0) / 255.0;
+        return match channels[..] {
+            [r, g, b] => Some((channel(r), channel(g), channel(b), 1.0)),
+            [r, g, b, a] => Some((channel(r), channel(g), channel(b), a.clamp(0.0, 1.0))),
+            _ => None,
+        };
+    }
     let hex = match color.as_str() {
         "black" => "000000",
         "white" => "ffffff",
@@ -537,6 +961,8 @@ enum Token {
     Open(String, Vec<(String, String)>),
     Close(String),
     Text(String),
+    /// A `<style>`'s contents.
+    Css(String),
 }
 
 fn tokenize(html: &str) -> Vec<Token> {
@@ -572,10 +998,15 @@ fn tokenize(html: &str) -> Vec<Token> {
         if matches!(name.as_str(), "script" | "style" | "title" | "textarea") {
             let lower = rest.to_ascii_lowercase();
             let close = format!("</{}", name);
-            rest = match lower.find(&close) {
-                Some(i) => &rest[i..],
-                None => "",
-            };
+            let end = lower.find(&close).unwrap_or(rest.len());
+            let media = attrs.iter().find(|(k, _)| k == "media");
+            if name == "style" && !media.is_some_and(|(_, m)| m.contains("print")) {
+                tokens.push(Token::Open(name, attrs));
+                tokens.push(Token::Css(rest[..end].to_string()));
+                rest = &rest[end..];
+                continue;
+            }
+            rest = &rest[end..];
         }
         tokens.push(Token::Open(name, attrs));
     }
@@ -759,5 +1190,34 @@ mod tests {
         let page = layout("<center>ab</center><p>x<p>y", 120.0, &mut Fixed);
         assert_eq!(page.fragments[0].x, 8.0 + (104.0 - 20.0) / 2.0);
         assert_eq!(page.fragments[2].y - page.fragments[1].y, 32.0);
+    }
+
+    #[test]
+    fn css() {
+        let html = "<style><!-- body { -webkit-user-select: none; }\n\
+                    /* x */ .s2 { font-family: Verdana, sans-serif; \
+                    color: #FFFFFF; font-size: small; }\n\
+                    .s5 { color: #FF0000; font-weight: bold }\n\
+                    div p, a:link { color: rgb(0, 255, 0) !important; \
+                    text-decoration: none } p#x { color: red } --></style>\
+                    <p class=\"s2\">a <span class=\"s5\">b</span></p>\
+                    <div><p class=\"s2\" id=\"x\" style=\"font: italic \
+                    bold 12pt Courier\">c <a href=\"h\">d</a></p></div>";
+        let page = layout(html, 320.0, &mut Fixed);
+        assert_eq!(texts(&page), ["a", "b", "c", "d"]);
+        let [a, b, c, d] = &page.fragments[..] else {
+            unreachable!();
+        };
+        assert_eq!((a.style.size, a.style.family), (13.0, FontFamily::Sans));
+        assert_eq!(a.style.color, (1.0, 1.0, 1.0, 1.0));
+        // A paragraph's margin is in its own font size.
+        assert_eq!(a.y, 13.0);
+        assert_eq!(b.style.color, (1.0, 0.0, 0.0, 1.0));
+        assert!(b.style.bold && !a.style.bold);
+        assert_eq!((c.style.size, c.style.family), (16.0, FontFamily::Mono));
+        assert!(c.style.italic && c.style.bold);
+        assert_eq!(c.style.color, (0.0, 1.0, 0.0, 1.0));
+        assert!(!d.style.underline);
+        assert!(page.unsupported.is_empty(), "{:?}", page.unsupported);
     }
 }
