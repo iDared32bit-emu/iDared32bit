@@ -23,6 +23,7 @@ Compatibility:
 - Fixed taps landing in the wrong place in some games.
 - Fixed crashes in some games that slide between screens.
 - Added tab bars, so games that use them can switch between their screens.
+- Added action sheets, so games that use them can offer their choices.
 
 ## v1.5.2 (2026-11-07)
 
