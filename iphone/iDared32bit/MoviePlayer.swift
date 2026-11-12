@@ -11,15 +11,18 @@ import UIKit
 
 private enum Movie {
     nonisolated(unsafe) static var controller: MovieViewController?
+    nonisolated(unsafe) static var window: UIWindow?
     nonisolated(unsafe) static var endObserver: NSObjectProtocol?
     // TODO: remove once SpyMouse HD's black movie is understood.
     nonisolated(unsafe) static var statusObserver: NSKeyValueObservation?
 }
 
-/// Holds the player, turned to the orientation the game asked for: some
-/// games' movies are made sideways for iPhone OS 3's landscape player. The
-/// interface itself keeps the game's orientations, the only ones iOS allows
-/// while it's running, so the player is turned within it instead.
+/// Holds the player, in its own window over SDL's, which SDL can't cover
+/// when it swaps its GL views. It's turned to the orientation the game
+/// asked for: some games' movies are made sideways for iPhone OS 3's
+/// landscape player. The interface itself keeps the game's orientations,
+/// the only ones iOS allows while it's running, so the player is turned
+/// within it instead.
 private final class MovieViewController: UIViewController {
     let player = AVPlayerViewController()
     let content = UIView()
@@ -107,7 +110,6 @@ public func idaredMoviePlay(
     controller.orientation =
         UIInterfaceOrientation(rawValue: Int(orientation)) ?? .unknown
     controller.allowed = presenter.supportedInterfaceOrientations
-    controller.modalPresentationStyle = .fullScreen
     Movie.endObserver = NotificationCenter.default.addObserver(
         forName: .AVPlayerItemDidPlayToEndTime,
         object: item,
@@ -123,15 +125,19 @@ public func idaredMoviePlay(
         )
     }
     Movie.controller = controller
-    presenter.present(controller, animated: false) {
-        print(
-            "Movie: presented by \(type(of: presenter)),",
-            "window \(String(describing: controller.view.window)),",
-            "frame \(controller.view.frame),",
-            "player \(controller.player.view.frame)",
-        )
-        controller.player.player?.play()
-    }
+    let window = presenter.view.window?.windowScene.map {
+        UIWindow(windowScene: $0)
+    } ?? UIWindow(frame: UIScreen.main.bounds)
+    window.windowLevel = UIWindow.Level(rawValue: UIWindow.Level.normal.rawValue + 1)
+    window.rootViewController = controller
+    window.isHidden = false
+    Movie.window = window
+    print(
+        "Movie: window over \(String(describing: presenter.view.window)),",
+        "frame \(controller.view.frame),",
+        "player \(controller.player.view.frame)",
+    )
+    controller.player.player?.play()
 }
 
 /// Whether the movie has ended, been closed by the user, or been stopped.
@@ -152,7 +158,9 @@ public func idaredMovieStop() {
     }
     Movie.controller = nil
     controller.player.player?.pause()
-    controller.presentingViewController?.dismiss(animated: false)
+    Movie.window?.isHidden = true
+    Movie.window?.rootViewController = nil
+    Movie.window = nil
 }
 
 /// SDL's view controller, or whatever it's presenting.
