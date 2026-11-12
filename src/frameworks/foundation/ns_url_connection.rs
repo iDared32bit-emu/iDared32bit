@@ -164,14 +164,7 @@ pub const CLASSES: ClassExports = objc_classes! {
     host_object.finished = true;
     let delegate = std::mem::replace(&mut host_object.delegate, nil);
 
-    let domain = ns_string::get_static_str(env, NSURLErrorDomain);
-    let key = ns_string::get_static_str(env, NSLocalizedDescriptionKey);
-    let description =
-        ns_string::get_static_str(env, "The Internet connection appears to be offline.");
-    let user_info: id = msg_class![env; NSDictionary dictionaryWithObject:description forKey:key];
-    let error: id = msg_class![env; NSError errorWithDomain:domain
-                                                       code:NSURLErrorNotConnectedToInternet
-                                                   userInfo:user_info];
+    let error = offline_error(env);
     let sel = env.objc.lookup_selector("connection:didFailWithError:");
     if sel.is_some_and(|sel| env.objc.object_has_method(&env.mem, delegate, sel)) {
         () = msg![env; delegate connection:this didFailWithError:error];
@@ -202,4 +195,16 @@ fn url_string_from_request(env: &mut Environment, request: id) -> Cow<'static, s
         let ns_string = msg![env; url absoluteString];
         ns_string::to_rust_string(env, ns_string)
     }
+}
+
+/// iOS's error for a request made while offline.
+pub fn offline_error(env: &mut Environment) -> id {
+    let domain = ns_string::get_static_str(env, NSURLErrorDomain);
+    let key = ns_string::get_static_str(env, NSLocalizedDescriptionKey);
+    let description =
+        ns_string::get_static_str(env, "The Internet connection appears to be offline.");
+    let user_info: id = msg_class![env; NSDictionary dictionaryWithObject:description forKey:key];
+    msg_class![env; NSError errorWithDomain:domain
+                                       code:NSURLErrorNotConnectedToInternet
+                                   userInfo:user_info]
 }

@@ -11,7 +11,9 @@ use crate::frameworks::core_graphics::cg_bitmap_context::CGBitmapContextDrawer;
 use crate::frameworks::core_graphics::{CGFloat, CGPoint, CGRect, CGSize};
 use crate::frameworks::foundation::ns_string::{get_static_str, to_rust_string};
 use crate::frameworks::foundation::NSInteger;
-use crate::objc::{autorelease, id, msg, objc_classes, ClassExports, HostObject, NSZonePtr};
+use crate::objc::{
+    autorelease, id, msg, msg_class, objc_classes, ClassExports, HostObject, NSZonePtr,
+};
 use crate::Environment;
 use std::collections::HashMap;
 use std::ops::Range;
@@ -211,6 +213,42 @@ pub const CLASSES: ClassExports = objc_classes! {
 @end
 
 };
+
+/// A font family, for fonts picked by style rather than by name.
+#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
+pub enum FontFamily {
+    Sans,
+    Serif,
+    Mono,
+}
+
+/// A `UIFont` of a family and style, as `UIWebView`'s pages use.
+pub fn font_with_style(
+    env: &mut Environment,
+    family: FontFamily,
+    bold: bool,
+    italic: bool,
+    size: CGFloat,
+) -> id {
+    use FontFamily::*;
+    let kind = match (family, bold, italic) {
+        (Sans, false, false) => FontKind::SansRegular,
+        (Sans, true, false) => FontKind::SansBold,
+        (Sans, false, true) => FontKind::SansItalic,
+        (Sans, true, true) => FontKind::SansBoldItalic,
+        (Serif, false, false) => FontKind::SerifRegular,
+        (Serif, true, false) => FontKind::SerifBold,
+        (Serif, false, true) => FontKind::SerifItalic,
+        (Serif, true, true) => FontKind::SerifBoldItalic,
+        (Mono, false, false) => FontKind::MonoRegular,
+        (Mono, true, false) => FontKind::MonoBold,
+        (Mono, false, true) => FontKind::MonoItalic,
+        (Mono, true, true) => FontKind::MonoBoldItalic,
+    };
+    let font: id = msg_class![env; UIFont alloc];
+    *env.objc.borrow_mut::<UIFontHostObject>(font) = UIFontHostObject { size, kind };
+    autorelease(env, font)
+}
 
 /// The font for a name, as for `fontWithName:size:`.
 fn font_kind(env: &mut Environment, name: id) -> FontKind {
