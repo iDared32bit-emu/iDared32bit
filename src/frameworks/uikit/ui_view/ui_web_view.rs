@@ -455,8 +455,12 @@ fn show_page(env: &mut Environment, web_view: id, html: &str) {
         width: bounds.size.width,
         height,
     };
+    // A web view that isn't opaque shows what's behind pages with no
+    // background of their own.
+    let opaque: bool = msg![env; web_view isOpaque];
     let color: id = match page.background {
         Some((r, g, b, a)) => msg_class![env; UIColor colorWithRed:r green:g blue:b alpha:a],
+        None if !opaque => msg_class![env; UIColor clearColor],
         None => msg_class![env; UIColor whiteColor],
     };
     () = msg![env; document setBackgroundColor:color];
