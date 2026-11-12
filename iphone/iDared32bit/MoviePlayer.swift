@@ -13,8 +13,6 @@ private enum Movie {
     nonisolated(unsafe) static var controller: MovieViewController?
     nonisolated(unsafe) static var window: UIWindow?
     nonisolated(unsafe) static var endObserver: NSObjectProtocol?
-    // TODO: remove once SpyMouse HD's black movie is understood.
-    nonisolated(unsafe) static var statusObserver: NSKeyValueObservation?
 }
 
 /// Holds the player, in its own window over SDL's, which SDL can't cover
@@ -117,13 +115,6 @@ public func idaredMoviePlay(
     ) { _ in
         idaredMovieStop()
     }
-    Movie.statusObserver = item.observe(\.status) { item, _ in
-        print(
-            "Movie: status \(item.status.rawValue),",
-            "size \(item.presentationSize),",
-            "error \(String(describing: item.error))",
-        )
-    }
     Movie.controller = controller
     let window = presenter.view.window?.windowScene.map {
         UIWindow(windowScene: $0)
@@ -134,11 +125,6 @@ public func idaredMoviePlay(
     window.rootViewController = controller
     window.isHidden = false
     Movie.window = window
-    print(
-        "Movie: window over \(String(describing: presenter.view.window)),",
-        "frame \(controller.view.frame),",
-        "player \(controller.player.view.frame)",
-    )
     controller.player.player?.play()
 }
 
@@ -154,7 +140,6 @@ public func idaredMovieStop() {
         NotificationCenter.default.removeObserver(observer)
         Movie.endObserver = nil
     }
-    Movie.statusObserver = nil
     guard let controller = Movie.controller else {
         return
     }
