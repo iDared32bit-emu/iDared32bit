@@ -211,10 +211,8 @@ pub unsafe fn present_frame(
         gles.Disable(gles11::TEXTURE_2D);
         gles.Enable(gles11::BLEND);
         gles.BlendFunc(gles11::ONE, gles11::ONE_MINUS_SRC_ALPHA);
-        // Premultiplied alpha: light grey, brighter while pressed.
+        // Light grey, brighter while pressed.
         let alpha = if pressed { 0.9 } else { 0.4 };
-        let grey = alpha * 0.85;
-        gles.Color4f(grey, grey, grey, alpha);
 
         // Pixels from the top left to normalized device co-ordinates.
         let to_ndc = |px: f32, py: f32| {
@@ -224,43 +222,91 @@ pub unsafe fn present_frame(
             ]
         };
 
-        // Ring, as a strip alternating between its outer and inner edges.
-        const SEGMENTS: usize = 48;
-        let mut ring = [0f32; (SEGMENTS + 1) * 4];
-        for i in 0..=SEGMENTS {
-            let angle = i as f32 / SEGMENTS as f32 * std::f32::consts::TAU;
-            let (sin, cos) = angle.sin_cos();
-            let outer = to_ndc(x + cos * radius, y + sin * radius);
-            let inner = to_ndc(x + cos * radius * 0.86, y + sin * radius * 0.86);
-            ring[i * 4..i * 4 + 4].copy_from_slice(&[outer[0], outer[1], inner[0], inner[1]]);
-        }
-        gles.VertexPointer(2, gles11::FLOAT, 0, ring.as_ptr() as *const GLvoid);
-        gles.DrawArrays(gles11::TRIANGLE_STRIP, 0, (SEGMENTS + 1) as GLsizei * 2);
+        // Drawn smoothly at its size in pixels, lined up with them, then
+        // shown as a texture. A power of two, as GLES 1.1 may need.
+        let size = ((radius * 2.0).ceil() as u32 + 2).next_power_of_two();
+        let (left, top) = (
+            (x - size as f32 / 2.0).floor(),
+            (y - size as f32 / 2.0).floor(),
+        );
+        let pixmap = home_button_pixmap(size, x - left, y - top, radius, alpha);
 
-        // An X, which looks the same whichever way the device is held: a
-        // plus sign turned 45°, made of a centre square and four arms that
-        // don't overlap, so no part of it is blended twice. Co-ordinates are
-        // in units of the radius.
-        let (half_width, arm) = (0.13, 0.44);
-        let mut rects = vec![(-half_width, -half_width, half_width, half_width)];
-        rects.extend([
-            (half_width, -half_width, arm, half_width),
-            (-arm, -half_width, -half_width, half_width),
-            (-half_width, half_width, half_width, arm),
-            (-half_width, -arm, half_width, -half_width),
-        ]);
-        let cos45 = std::f32::consts::FRAC_1_SQRT_2;
-        let point = |px: f32, py: f32| {
-            let (rx, ry) = ((px - py) * cos45, (px + py) * cos45);
-            to_ndc(x + rx * radius, y + ry * radius)
-        };
-        let mut cross = Vec::with_capacity(rects.len() * 12);
-        for (x0, y0, x1, y1) in rects {
-            for (px, py) in [(x0, y0), (x1, y0), (x0, y1), (x1, y0), (x1, y1), (x0, y1)] {
-                cross.extend(point(px, py));
-            }
+        let mut old_texture = 0;
+        gles.GetIntegerv(gles11::TEXTURE_BINDING_2D, &mut old_texture);
+        let mut texture = 0;
+        gles.GenTextures(1, &mut texture);
+        gles.BindTexture(gles11::TEXTURE_2D, texture);
+        for (pname, param) in [
+            (gles11::TEXTURE_MIN_FILTER, gles11::NEAREST),
+            (gles11::TEXTURE_MAG_FILTER, gles11::NEAREST),
+            (gles11::TEXTURE_WRAP_S, gles11::CLAMP_TO_EDGE),
+            (gles11::TEXTURE_WRAP_T, gles11::CLAMP_TO_EDGE),
+        ] {
+            gles.TexParameteri(gles11::TEXTURE_2D, pname, param as _);
         }
-        gles.VertexPointer(2, gles11::FLOAT, 0, cross.as_ptr() as *const GLvoid);
-        gles.DrawArrays(gles11::TRIANGLES, 0, (cross.len() / 2) as GLsizei);
+        gles.TexImage2D(
+            gles11::TEXTURE_2D,
+            0,
+            gles11::RGBA as _,
+            size as _,
+            size as _,
+            0,
+            gles11::RGBA,
+            gles11::UNSIGNED_BYTE,
+            pixmap.data().as_ptr() as *const GLvoid,
+        );
+
+        let (right, bottom) = (left + size as f32, top + size as f32);
+        let mut quad = Vec::with_capacity(12);
+        for (px, py) in [
+            (left, top),
+            (right, top),
+            (left, bottom),
+            (right, top),
+            (right, bottom),
+            (left, bottom),
+        ] {
+            quad.extend(to_ndc(px, py));
+        }
+        let tex_coords: [f32; 12] = [0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 1.0, 0.0, 1.0, 1.0, 0.0, 1.0];
+        gles.Enable(gles11::TEXTURE_2D);
+        gles.EnableClientState(gles11::TEXTURE_COORD_ARRAY);
+        gles.TexCoordPointer(2, gles11::FLOAT, 0, tex_coords.as_ptr() as *const GLvoid);
+        gles.Color4f(1.0, 1.0, 1.0, 1.0);
+        gles.VertexPointer(2, gles11::FLOAT, 0, quad.as_ptr() as *const GLvoid);
+        gles.DrawArrays(gles11::TRIANGLES, 0, 6);
+        gles.DeleteTextures(1, &texture);
+        gles.BindTexture(gles11::TEXTURE_2D, old_texture as _);
     }
+}
+
+/// The Home button: a ring with an X inside (a plus sign turned 45°, which
+/// looks the same whichever way the device is held), with smooth edges.
+/// Premultiplied, centred on `cx`, `cy`.
+fn home_button_pixmap(size: u32, cx: f32, cy: f32, radius: f32, alpha: f32) -> tiny_skia::Pixmap {
+    use tiny_skia::{Color, Paint, PathBuilder, Pixmap, Stroke, Transform};
+    let mut pixmap = Pixmap::new(size, size).unwrap();
+    let mut paint = Paint::default();
+    paint.set_color(Color::from_rgba(0.85, 0.85, 0.85, alpha).unwrap());
+    paint.anti_alias = true;
+    let ring = PathBuilder::from_circle(cx, cy, radius * 0.93).unwrap();
+    let stroke = Stroke {
+        width: radius * 0.14,
+        ..Default::default()
+    };
+    pixmap.stroke_path(&ring, &paint, &stroke, Transform::identity(), None);
+    // One path, so where the arms cross isn't drawn twice.
+    let arm = radius * 0.44 * std::f32::consts::FRAC_1_SQRT_2;
+    let mut cross = PathBuilder::new();
+    cross.move_to(cx - arm, cy - arm);
+    cross.line_to(cx + arm, cy + arm);
+    cross.move_to(cx + arm, cy - arm);
+    cross.line_to(cx - arm, cy + arm);
+    let stroke = Stroke {
+        width: radius * 0.26,
+        ..Default::default()
+    };
+    let cross = cross.finish().unwrap();
+    pixmap.stroke_path(&cross, &paint, &stroke, Transform::identity(), None);
+    pixmap
 }
