@@ -8,6 +8,7 @@ Usability:
 
 - Games that vibrate the phone now do, and rumble a connected controller too.
 - On iOS, games' movies now play instead of being skipped.
+- The on-screen Home button now has smooth edges.
 
 Compatibility:
 
