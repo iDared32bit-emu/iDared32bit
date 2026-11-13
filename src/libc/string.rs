@@ -67,6 +67,10 @@ fn strtok(env: &mut Environment, s: MutPtr<u8>, sep: ConstPtr<u8>) -> MutPtr<u8>
 fn bzero(env: &mut Environment, dest: MutVoidPtr, count: GuestUSize) {
     memset(env, dest, 0, count);
 }
+/// The BSD `memmove`, with the source first.
+fn bcopy(env: &mut Environment, src: ConstVoidPtr, dest: MutVoidPtr, size: GuestUSize) {
+    memmove(env, dest, src, size);
+}
 fn memset(env: &mut Environment, dest: MutVoidPtr, ch: i32, count: GuestUSize) -> MutVoidPtr {
     GenericChar::<u8>::memset(env, dest.cast(), ch as u8, count, GuestUSize::MAX).cast()
 }
@@ -316,6 +320,7 @@ fn strlcpy(
 pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(strtok(_, _)),
     export_c_func!(bzero(_, _)),
+    export_c_func!(bcopy(_, _, _)),
     // Functions shared with wchar.rs
     export_c_func!(memset(_, _, _)),
     export_c_func!(__memset_chk(_, _, _, _)),
