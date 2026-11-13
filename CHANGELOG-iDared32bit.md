@@ -27,6 +27,7 @@ Compatibility:
 - Added loading spinners, which some games show while loading.
 - Web pages in games (help, about and credits screens) are now shown, with their colours and fonts.
 - Games no longer quit when opening a link that no app on the device could open.
+- Games that handle errors (such as having no network) with exceptions no longer crash.
 - Text in the Verdana font is now drawn with a much closer substitute.
 - Various small fixes.
 

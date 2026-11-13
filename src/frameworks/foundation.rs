@@ -77,6 +77,7 @@ pub const DYLIB: crate::dyld::HostDylib = crate::dyld::HostDylib {
         _nib_archive_decoder::CLASSES,
         ns_array::CLASSES,
         ns_assertion_handler::CLASSES,
+        ns_exception::CLASSES,
         ns_autorelease_pool::CLASSES,
         ns_bundle::CLASSES,
         ns_calendar::CLASSES,

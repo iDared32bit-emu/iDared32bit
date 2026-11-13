@@ -572,6 +572,12 @@ impl Dyld {
 
             let ptr_ptr: MutPtr<ConstVoidPtr> = Ptr::from_bits(ptrs.addr + i * entry_size);
 
+            // Objective-C exceptions are C++ ones underneath (see
+            // objc::exceptions), so the app's libstdc++ handles them.
+            let symbol = match symbol {
+                "___objc_personality_v0" => "___gxx_personality_sj0",
+                _ => symbol,
+            };
             for other_bin in bins {
                 if let Some(&addr) = other_bin.exported_symbols.get(symbol) {
                     mem.write(ptr_ptr, Ptr::from_bits(addr));

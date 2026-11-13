@@ -27,6 +27,7 @@ use std::collections::HashMap;
 mod arc;
 mod blocks;
 mod classes;
+mod exceptions;
 mod messages;
 mod methods;
 mod objects;
@@ -36,6 +37,7 @@ mod synchronization;
 
 pub use arc::call_cxx_destructors;
 pub use classes::{objc_classes, Class, ClassExports, ClassTemplate};
+pub use exceptions::objc_exception_throw;
 pub use messages::{
     autorelease, msg, msg_class, msg_send, msg_send_no_initialize, msg_send_no_type_checking,
     msg_send_super2, msg_super, objc_super, release, retain,
@@ -158,6 +160,10 @@ pub struct ObjC {
 
     /// Numbers each object allocated, so a reused address can be told apart.
     next_object_serial: u64,
+
+    /// The Objective-C exception type info vtable (see `exceptions`), once
+    /// made.
+    ehtype_vtable: Option<u32>,
 }
 
 impl ObjC {
@@ -173,6 +179,7 @@ impl ObjC {
             cached_guest_functions: HashMap::new(),
             message_type_info: None,
             next_object_serial: 0,
+            ehtype_vtable: None,
         }
     }
 }
@@ -181,8 +188,13 @@ pub const DYLIB: HostDylib = HostDylib {
     path: "/usr/lib/libobjc.A.dylib",
     aliases: &["/usr/lib/libobjc.dylib"],
     class_exports: &[blocks::CLASSES],
-    constant_exports: &[CONSTANTS, blocks::CONSTANTS],
-    function_exports: &[FUNCTIONS, arc::FUNCTIONS, blocks::FUNCTIONS],
+    constant_exports: &[CONSTANTS, blocks::CONSTANTS, exceptions::CONSTANTS],
+    function_exports: &[
+        FUNCTIONS,
+        arc::FUNCTIONS,
+        blocks::FUNCTIONS,
+        exceptions::FUNCTIONS,
+    ],
 };
 
 const CONSTANTS: ConstantExports = &[
