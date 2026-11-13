@@ -843,16 +843,16 @@ fn transform_for_conversion(env: &mut Environment, this: id, other: id) -> CGAff
             other_transform = next_transform;
         }
 
+        // Not in the same tree (e.g. different windows, or not in one yet):
+        // as on iOS, both trees' roots count as the same space.
         if this_superlayer == nil && other_superlayer == nil {
             if need_common_ancestor {
-                panic!("Layers {this:?} and {other:?} have no common ancestor!");
-            } else {
-                break (nil, this_transform, other_transform);
+                log_dbg!("Layers {this:?} and {other:?} have no common ancestor");
             }
+            break (nil, this_transform, other_transform);
         }
     };
 
-    assert!((common_ancestor == nil) != need_common_ancestor);
     if need_common_ancestor {
         log_dbg!("{this:?} and {other:?}'s common ancestor: {common_ancestor:?}",);
     }
