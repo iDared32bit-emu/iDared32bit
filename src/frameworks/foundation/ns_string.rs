@@ -997,14 +997,16 @@ pub const CLASSES: ClassExports = objc_classes! {
         NSUTF8StringEncoding => {
             string.as_bytes().to_vec()
         },
-        NSUTF16LittleEndianStringEncoding => string.encode_utf16().flat_map(u16::to_le_bytes).collect(),
+        // Plain UTF-16 is the device's byte order, with no byte order mark.
+        NSUTF16StringEncoding | NSUTF16LittleEndianStringEncoding => string.encode_utf16().flat_map(u16::to_le_bytes).collect(),
+        NSUTF16BigEndianStringEncoding => string.encode_utf16().flat_map(u16::to_be_bytes).collect(),
         NSUTF32LittleEndianStringEncoding => string.chars().flat_map(|c| (c as u32).to_le_bytes()).collect(),
         NSUTF32BigEndianStringEncoding => string.chars().flat_map(|c| (c as u32).to_be_bytes()).collect(),
         _ => unimplemented!("{}", encoding),
     };
     let null_size: GuestUSize = match encoding {
         NSUTF8StringEncoding | NSASCIIStringEncoding | NSMacOSRomanStringEncoding | NSISOLatin1StringEncoding => 1,
-        NSUTF16LittleEndianStringEncoding => 2,
+        NSUTF16StringEncoding | NSUTF16LittleEndianStringEncoding | NSUTF16BigEndianStringEncoding => 2,
         NSUTF32LittleEndianStringEncoding | NSUTF32BigEndianStringEncoding => 4,
         _ => unimplemented!()
     };
