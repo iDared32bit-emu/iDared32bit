@@ -33,7 +33,7 @@ use crate::objc::{
     HostObject, NSZonePtr, ObjC, TrivialHostObject,
 };
 use crate::{fs, Environment};
-use encoding_rs::{SHIFT_JIS, WINDOWS_1252};
+use encoding_rs::{EUC_KR, SHIFT_JIS, WINDOWS_1252};
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::io::Write;
@@ -54,6 +54,9 @@ pub const NSUTF16LittleEndianStringEncoding: NSUInteger = 0x94000100;
 pub const NSUTF32StringEncoding: NSUInteger = 0x8c000100;
 pub const NSUTF32BigEndianStringEncoding: NSUInteger = 0x98000100;
 pub const NSUTF32LittleEndianStringEncoding: NSUInteger = 0x9c000100;
+/// What `CFStringConvertEncodingToNSStringEncoding` gives for
+/// `kCFStringEncodingDOSKorean` (code page 949), which has no name.
+pub const NSDOSKoreanStringEncoding: NSUInteger = 0x80000422;
 
 pub type NSStringCompareOptions = NSUInteger;
 pub const NSCaseInsensitiveSearch: NSUInteger = 1;
@@ -70,6 +73,7 @@ const C_STRING_FRIENDLY_ENCODINGS: &[NSStringEncoding] = &[
     NSWindowsCP1252StringEncoding,
     NSMacOSRomanStringEncoding,
     NSISOLatin1StringEncoding,
+    NSDOSKoreanStringEncoding,
 ];
 
 pub const NSMaximumStringLength: NSUInteger = (i32::MAX - 1) as _;
@@ -135,6 +139,13 @@ impl StringHostObject {
             NSWindowsCP1252StringEncoding => {
                 let (cow, encoding_used, had_errors) = WINDOWS_1252.decode(&bytes);
                 assert_eq!(encoding_used, WINDOWS_1252);
+                assert!(!had_errors);
+                StringHostObject::Utf8(Cow::Owned(cow.into_owned()))
+            }
+            // encoding_rs's EUC-KR is the web's, which is code page 949.
+            NSDOSKoreanStringEncoding => {
+                let (cow, encoding_used, had_errors) = EUC_KR.decode(&bytes);
+                assert_eq!(encoding_used, EUC_KR);
                 assert!(!had_errors);
                 StringHostObject::Utf8(Cow::Owned(cow.into_owned()))
             }
@@ -585,7 +596,11 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (NSUInteger)lengthOfBytesUsingEncoding:(NSStringEncoding)encoding {
-    if C_STRING_FRIENDLY_ENCODINGS.contains(&encoding) {
+    if encoding == NSDOSKoreanStringEncoding {
+        let string = to_rust_string(env, this);
+        // 0 if it can't be converted, as on iOS.
+        encode_korean(&string).map_or(0, |b| b.len()).try_into().unwrap()
+    } else if C_STRING_FRIENDLY_ENCODINGS.contains(&encoding) {
         let string = to_rust_string(env, this);
         assert!(string.as_bytes().iter().all(|byte| byte.is_ascii())); // TODO
         string.len().try_into().unwrap()
@@ -1002,10 +1017,14 @@ pub const CLASSES: ClassExports = objc_classes! {
         NSUTF16BigEndianStringEncoding => string.encode_utf16().flat_map(u16::to_be_bytes).collect(),
         NSUTF32LittleEndianStringEncoding => string.chars().flat_map(|c| (c as u32).to_le_bytes()).collect(),
         NSUTF32BigEndianStringEncoding => string.chars().flat_map(|c| (c as u32).to_be_bytes()).collect(),
+        NSDOSKoreanStringEncoding => match encode_korean(&string) {
+            Some(bytes) => bytes,
+            None => return ConstPtr::null(),
+        },
         _ => unimplemented!("{}", encoding),
     };
     let null_size: GuestUSize = match encoding {
-        NSUTF8StringEncoding | NSASCIIStringEncoding | NSMacOSRomanStringEncoding | NSISOLatin1StringEncoding => 1,
+        NSUTF8StringEncoding | NSASCIIStringEncoding | NSMacOSRomanStringEncoding | NSISOLatin1StringEncoding | NSDOSKoreanStringEncoding => 1,
         NSUTF16StringEncoding | NSUTF16LittleEndianStringEncoding | NSUTF16BigEndianStringEncoding => 2,
         NSUTF32LittleEndianStringEncoding | NSUTF32BigEndianStringEncoding => 4,
         _ => unimplemented!()
@@ -2358,9 +2377,20 @@ pub fn get_bytes_buffer_inner(
             || encoding == NSASCIIStringEncoding
             || encoding == NSMacOSRomanStringEncoding
             || encoding == NSISOLatin1StringEncoding
+            || encoding == NSDOSKoreanStringEncoding
     );
 
     let src = to_rust_string(env, str);
+    let korean;
+    let src_bytes = if encoding == NSDOSKoreanStringEncoding {
+        let Some(bytes) = encode_korean(&src) else {
+            return false;
+        };
+        korean = bytes;
+        &korean[..]
+    } else {
+        src.as_bytes()
+    };
     if encoding == NSASCIIStringEncoding
         || encoding == NSMacOSRomanStringEncoding
         || encoding == NSISOLatin1StringEncoding
@@ -2371,18 +2401,18 @@ pub fn get_bytes_buffer_inner(
     }
     let dest = env.mem.bytes_at_mut(buffer, buffer_size);
     let src_len = if include_null_terminator {
-        src.len() + 1
+        src_bytes.len() + 1
     } else {
-        src.len()
+        src_bytes.len()
     };
     if dest.len() < src_len {
         return false;
     }
 
     let iter: Box<dyn Iterator<Item = &u8>> = if include_null_terminator {
-        Box::new(src.as_bytes().iter().chain(b"\0".iter()))
+        Box::new(src_bytes.iter().chain(b"\0".iter()))
     } else {
-        Box::new(src.as_bytes().iter())
+        Box::new(src_bytes.iter())
     };
     for (i, &byte) in iter.enumerate() {
         dest[i] = byte;
@@ -2450,4 +2480,11 @@ fn string_by_replacing_occurrences_inner(
     let result_ns_string = msg_class![env; _touchHLE_NSString alloc];
     *env.objc.borrow_mut(result_ns_string) = StringHostObject::Utf16(result);
     autorelease(env, result_ns_string)
+}
+
+/// A string in code page 949, or [None] if it has characters that can't be
+/// (`encoding_rs` would write those as HTML character references).
+fn encode_korean(string: &str) -> Option<Vec<u8>> {
+    let (bytes, _, had_errors) = EUC_KR.encode(string);
+    (!had_errors).then(|| bytes.into_owned())
 }

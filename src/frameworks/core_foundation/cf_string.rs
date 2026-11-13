@@ -35,6 +35,8 @@ pub const kCFStringEncodingISOLatin1: CFStringEncoding = 0x0201;
 pub const kCFStringEncodingUTF32: CFStringEncoding = 0x0c000100;
 pub const kCFStringEncodingUTF32BE: CFStringEncoding = 0x18000100;
 pub const kCFStringEncodingUTF32LE: CFStringEncoding = 0x1c000100;
+/// Windows code page 949.
+pub const kCFStringEncodingDOSKorean: CFStringEncoding = 0x0422;
 
 fn CFStringAppend(
     env: &mut Environment,
@@ -84,6 +86,7 @@ pub fn CFStringConvertEncodingToNSStringEncoding(
         kCFStringEncodingUTF32 => ns_string::NSUTF32StringEncoding,
         kCFStringEncodingUTF32BE => ns_string::NSUTF32BigEndianStringEncoding,
         kCFStringEncodingUTF32LE => ns_string::NSUTF32LittleEndianStringEncoding,
+        kCFStringEncodingDOSKorean => ns_string::NSDOSKoreanStringEncoding,
         _ => unimplemented!("Unhandled: CFStringEncoding {:#x}", encoding),
     }
 }
@@ -102,6 +105,7 @@ fn CFStringConvertNSStringEncodingToEncoding(
         ns_string::NSUTF32StringEncoding => kCFStringEncodingUTF32,
         ns_string::NSUTF32BigEndianStringEncoding => kCFStringEncodingUTF32BE,
         ns_string::NSUTF32LittleEndianStringEncoding => kCFStringEncodingUTF32LE,
+        ns_string::NSDOSKoreanStringEncoding => kCFStringEncodingDOSKorean,
         _ => unimplemented!("Unhandled: NSStringEncoding {:#x}", encoding),
     }
 }
