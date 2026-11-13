@@ -11,7 +11,7 @@
 //! What makes them Objective-C is the type info: its `__do_catch` matches by
 //! class. Apps without libstdc++ can't catch them, so throwing panics there.
 
-use super::{id, msg, msg_class, nil, release, retain, Class};
+use super::{autorelease, id, msg, msg_class, nil, release, retain, Class};
 use crate::abi::{CallFromHost, GuestFunction};
 use crate::dyld::{export_c_func, ConstantExports, FunctionExports, HostConstant};
 use crate::frameworks::foundation::ns_string::to_rust_string;
@@ -113,6 +113,20 @@ pub fn objc_exception_throw(env: &mut Environment, exception: id) {
     };
     log!("Throwing Objective-C exception {} ({})", name, reason);
 
+    // An old-style @try that's still open gets it first.
+    let thread = env.current_thread;
+    if let Some(data) = env
+        .objc
+        .legacy_try_frames
+        .get_mut(&thread)
+        .and_then(Vec::pop)
+    {
+        retain(env, exception);
+        env.mem.write(legacy_exception_slot(data), exception);
+        crate::libc::setjmp::jump(env, data, 1);
+        return;
+    }
+
     let (Some(allocate), Some(throw)) = (
         guest_function(env, "___cxa_allocate_exception"),
         guest_function(env, "___cxa_throw"),
@@ -157,6 +171,44 @@ fn objc_end_catch(env: &mut Environment) {
     let _: () = end.call_from_host(env, ());
 }
 
+// The old (setjmp-based) @try, from the 32-bit Mac runtime. iPhone OS games
+// use the C++-style one above; this is here for completeness, untested.
+// The compiler's frame is a jmp_buf (27 words on ARM) then 4 pointers.
+
+/// Where the exception goes in an old-style @try frame.
+fn legacy_exception_slot(data: MutVoidPtr) -> MutPtr<id> {
+    (data.cast::<u8>() + 27 * 4).cast()
+}
+
+fn objc_exception_try_enter(env: &mut Environment, data: MutVoidPtr) {
+    env.mem.write(legacy_exception_slot(data), nil);
+    let thread = env.current_thread;
+    env.objc
+        .legacy_try_frames
+        .entry(thread)
+        .or_default()
+        .push(data);
+}
+
+fn objc_exception_try_exit(env: &mut Environment, data: MutVoidPtr) {
+    let thread = env.current_thread;
+    let frames = env.objc.legacy_try_frames.entry(thread).or_default();
+    if let Some(i) = frames.iter().rposition(|&frame| frame == data) {
+        frames.truncate(i);
+    }
+}
+
+fn objc_exception_extract(env: &mut Environment, data: MutVoidPtr) -> id {
+    let exception = env.mem.read(legacy_exception_slot(data));
+    // The frame held it while it was in flight; the caller's pool takes it.
+    autorelease(env, exception)
+}
+
+fn objc_exception_match(env: &mut Environment, class: Class, exception: id) -> i32 {
+    let matched: bool = msg![env; exception isKindOfClass:class];
+    matched.into()
+}
+
 pub const CONSTANTS: ConstantExports = &[
     (
         "_objc_ehtype_vtable",
@@ -183,6 +235,10 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(objc_exception_rethrow()),
     export_c_func!(objc_begin_catch(_)),
     export_c_func!(objc_end_catch()),
+    export_c_func!(objc_exception_try_enter(_)),
+    export_c_func!(objc_exception_try_exit(_)),
+    export_c_func!(objc_exception_extract(_)),
+    export_c_func!(objc_exception_match(_, _)),
     export_c_func!(_touchHLE_objc_ehtype_noop(_)),
     export_c_func!(_touchHLE_objc_ehtype_false(_)),
     export_c_func!(_touchHLE_objc_ehtype_do_catch(_, _, _, _)),

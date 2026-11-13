@@ -164,6 +164,10 @@ pub struct ObjC {
     /// The Objective-C exception type info vtable (see `exceptions`), once
     /// made.
     ehtype_vtable: Option<u32>,
+
+    /// Open old-style `@try` frames per thread, innermost last (see
+    /// `exceptions`).
+    legacy_try_frames: HashMap<crate::ThreadId, Vec<crate::mem::MutVoidPtr>>,
 }
 
 impl ObjC {
@@ -180,6 +184,7 @@ impl ObjC {
             message_type_info: None,
             next_object_serial: 0,
             ehtype_vtable: None,
+            legacy_try_frames: HashMap::new(),
         }
     }
 }

@@ -11,7 +11,7 @@
 
 use crate::abi::GuestFunction;
 use crate::dyld::{export_c_func, FunctionExports};
-use crate::mem::{MutPtr, SafeRead};
+use crate::mem::{MutPtr, MutVoidPtr, SafeRead};
 use crate::{abi, Environment};
 
 // Below apps are Fuse powered ones, this engine is using setjmp/longjmp for
@@ -62,6 +62,11 @@ fn setjmp(env: &mut Environment, jmp_buf: MutPtr<JmpBuf>) -> i32 {
     0 // no longjmp() was performed
 }
 
+/// The same as `setjmp`, without saving the signal mask (there is none).
+fn _setjmp(env: &mut Environment, jmp_buf: MutPtr<JmpBuf>) -> i32 {
+    setjmp(env, jmp_buf)
+}
+
 fn longjmp(env: &mut Environment, jmp_buf: MutPtr<JmpBuf>, status: u32) {
     let lr = env.cpu.regs()[crate::cpu::Cpu::LR];
     let fp = env.cpu.regs()[abi::FRAME_POINTER];
@@ -74,6 +79,14 @@ fn longjmp(env: &mut Environment, jmp_buf: MutPtr<JmpBuf>, status: u32) {
     {
         panic!("longjmp across host stack frames, current {cur_stack:?}, other {other_stack:?}");
     }
+    jump(env, jmp_buf.cast(), status);
+}
+
+/// Returns to a `setjmp` (for `longjmp` and Objective-C's old exceptions):
+/// with `status` as its result. Host calls in between are left as the guest
+/// next makes one (see `Environment::run_call`).
+pub fn jump(env: &mut Environment, jmp_buf: MutVoidPtr, status: u32) {
+    let buf: JmpBuf = env.mem.read(jmp_buf.cast());
     let regs = env.cpu.regs_mut();
     regs[0] = status;
     regs[4] = buf.r4;
@@ -89,4 +102,8 @@ fn longjmp(env: &mut Environment, jmp_buf: MutPtr<JmpBuf>, status: u32) {
         .branch(GuestFunction::from_addr_with_thumb_bit(buf.lr));
 }
 
-pub const FUNCTIONS: FunctionExports = &[export_c_func!(setjmp(_)), export_c_func!(longjmp(_, _))];
+pub const FUNCTIONS: FunctionExports = &[
+    export_c_func!(setjmp(_)),
+    export_c_func!(_setjmp(_)),
+    export_c_func!(longjmp(_, _)),
+];
