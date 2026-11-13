@@ -83,6 +83,9 @@ impl GuestFunction {
             .branch_with_link(self, env.dyld.return_to_host_routine());
 
         env.run_call();
+        if env.is_unwinding() {
+            return;
+        }
 
         env.cpu.branch(old_pc);
         env.cpu.regs_mut()[Cpu::LR] = old_lr.addr_with_thumb_bit();
@@ -310,6 +313,11 @@ macro_rules! impl_CallFromHost {
                 // it would mess up debug logging, so duplicating the code
                 // is easier.
                 env.run_call();
+                if env.is_unwinding() {
+                    // The guest unwound past this call: the result is
+                    // meaningless, and the registers must stay as they are.
+                    return <R as GuestRet>::from_regs(env.cpu.regs());
+                }
 
                 env.cpu.branch(old_pc);
 

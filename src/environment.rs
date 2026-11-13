@@ -79,6 +79,13 @@ pub struct Thread {
     /// Address range of this thread's stack, used to check if addresses are in
     /// range while producing a stack trace.
     pub stack: Option<std::ops::RangeInclusive<u32>>,
+    /// The guest stack pointer when each nested host-to-guest call began
+    /// ([Environment::run_call]), innermost last.
+    call_entry_sps: Vec<u32>,
+    /// Set while host calls are being left because the guest unwound past
+    /// them (an exception or `longjmp`): the guest's registers when that was
+    /// found, to carry on with in the call it's back in.
+    unwound_regs: Option<[u32; 16]>,
 }
 
 impl Thread {
@@ -698,6 +705,8 @@ impl Environment {
             host_context: Some(main_thread_init_routine),
             stack: Some(mem::Mem::MAIN_THREAD_STACK_LOW_END..=0u32.wrapping_sub(1)),
             framework_state: Default::default(),
+            call_entry_sps: Vec::new(),
+            unwound_regs: None,
         };
 
         let audio_subsystem = build_audio_subsystem(window.as_deref());
@@ -845,6 +854,8 @@ impl Environment {
             host_context: None,
             stack: Some(mem::Mem::MAIN_THREAD_STACK_LOW_END..=0u32.wrapping_sub(1)),
             framework_state: Default::default(),
+            call_entry_sps: Vec::new(),
+            unwound_regs: None,
         };
 
         let audio_subsystem = build_audio_subsystem(window.as_deref());
@@ -1166,6 +1177,8 @@ impl Environment {
             host_context: Some(thread_routine),
             stack: Some(stack_alloc.to_bits()..=(stack_high_addr - 1)),
             framework_state: Default::default(),
+            call_entry_sps: Vec::new(),
+            unwound_regs: None,
         });
 
         let new_thread_id = self.threads.len() - 1;
@@ -1610,8 +1623,31 @@ impl Environment {
     /// the app to return control on the original thread!
     pub fn run_call(&mut self) {
         let old_thread = self.current_thread;
+        let sp = self.cpu.regs()[cpu::Cpu::SP];
+        self.threads[old_thread].call_entry_sps.push(sp);
         self.run_inner();
         assert!(self.current_thread == old_thread);
+        self.threads[old_thread].call_entry_sps.pop();
+    }
+
+    /// Whether the guest, with these registers, has unwound past the current
+    /// host-to-guest call: its stack is above where the call began, or level
+    /// with it but not in a frame the call made (whose return address would
+    /// be the return-to-host routine).
+    fn is_outside_current_call(&self, regs: &[u32; 16]) -> bool {
+        let Some(&entry_sp) = self.threads[self.current_thread].call_entry_sps.last() else {
+            return false;
+        };
+        let (sp, lr) = (regs[cpu::Cpu::SP], regs[cpu::Cpu::LR]);
+        let return_to_host = self.dyld.return_to_host_routine().addr_with_thumb_bit();
+        sp > entry_sp || (sp == entry_sp && lr != return_to_host)
+    }
+
+    /// For host code that called guest code: whether that call ended because
+    /// the guest unwound past it, rather than by returning. If so, the caller
+    /// must leave the guest's registers alone and return at once.
+    pub fn is_unwinding(&self) -> bool {
+        self.threads[self.current_thread].unwound_regs.is_some()
     }
 
     /// Switch the current thread, putting the old host context (if it exists)
@@ -1748,6 +1784,16 @@ impl Environment {
                     dyld::Dyld::SVC_LAZY_LINK
                     | dyld::Dyld::SVC_LAZY_LINK_RET_FLAG
                     | dyld::Dyld::SVC_LINKED_FUNCTIONS_BASE.. => {
+                        // The guest has unwound past this host call (e.g. an
+                        // exception thrown through objc_msgSend): end it, so
+                        // the host frames in between end too, and make this
+                        // SVC again in the call the guest is back in.
+                        if self.is_outside_current_call(self.cpu.regs()) {
+                            let mut regs = *self.cpu.regs();
+                            regs[cpu::Cpu::PC] = svc_pc;
+                            self.threads[self.current_thread].unwound_regs = Some(regs);
+                            return ThreadNextAction::ReturnToHost;
+                        }
                         if let Some(f) = self.dyld.get_svc_handler(
                             &self.bins,
                             &mut self.mem,
@@ -1756,6 +1802,16 @@ impl Environment {
                             svc,
                         ) {
                             f.call_from_guest(self);
+                            if let Some(regs) = self.threads[self.current_thread].unwound_regs {
+                                if self.is_outside_current_call(&regs) {
+                                    return ThreadNextAction::ReturnToHost;
+                                }
+                                // Back in the right call: carry on from where
+                                // the guest was, whatever the host left.
+                                self.threads[self.current_thread].unwound_regs = None;
+                                *self.cpu.regs_mut() = regs;
+                                return ThreadNextAction::Continue;
+                            }
                             if let Some(len) = self.options.zero_stack_after_guest_to_host_call {
                                 log_once!("Applying zeroing of stack after guest to host call.");
                                 let start = self.cpu.regs()[cpu::Cpu::SP] - len;
