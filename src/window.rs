@@ -1009,6 +1009,15 @@ impl Window {
         self.on_screen_home_button = ON_SCREEN_HOME_BUTTON_PLATFORM;
     }
 
+    /// Drawable pixels per window point. Long sides are compared, as the
+    /// window's size can be in the other orientation (on iOS, while the game
+    /// asks for one the device isn't in).
+    fn pixels_per_point(&self) -> f32 {
+        let (screen_width, screen_height) = self.window.drawable_size();
+        let (window_width, window_height) = self.window.size();
+        screen_width.max(screen_height) as f32 / window_width.max(window_height) as f32
+    }
+
     /// Where the on-screen Home button is, if it's shown: its centre and
     /// radius, in drawable pixels from the top left.
     ///
@@ -1023,7 +1032,7 @@ impl Window {
         }
         let (vx, vy, vw, vh) = self.viewport();
         let (screen_width, screen_height) = self.window.drawable_size();
-        let pixels_per_point = screen_width as f32 / self.window.size().0 as f32;
+        let pixels_per_point = self.pixels_per_point();
         let bottom_bar = (screen_height - (vy + vh)) as f32;
         let right_bar = (screen_width - (vx + vw)) as f32;
         let (bar, x, y) = if bottom_bar > 0.0 && bottom_bar >= right_bar {
@@ -1761,7 +1770,7 @@ impl Window {
         }
 
         let (screen_width, screen_height) = self.window.drawable_size();
-        let pixels_per_point = screen_width as f32 / self.window.size().0 as f32;
+        let pixels_per_point = self.pixels_per_point();
 
         let app_aspect = app_width as f32 / app_height as f32;
         let fit = |width: u32, height: u32| {
