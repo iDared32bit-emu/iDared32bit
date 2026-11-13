@@ -41,6 +41,25 @@ fn CFDictionaryCreateMutable(
     msg![env; new initWithKeyCallbacks:key_callbacks andValueCallbacks:value_callbacks]
 }
 
+fn CFDictionaryCreate(
+    env: &mut Environment,
+    allocator: CFAllocatorRef,
+    keys: ConstPtr<ConstVoidPtr>,
+    values: ConstPtr<ConstVoidPtr>,
+    num_values: CFIndex,
+    key_callbacks: ConstPtr<CFDictionaryKeyCallBacks>,
+    value_callbacks: ConstPtr<CFDictionaryValueCallBacks>,
+) -> CFDictionaryRef {
+    // Mutable underneath, which correct CF code can't tell.
+    let dict = CFDictionaryCreateMutable(env, allocator, 0, key_callbacks, value_callbacks);
+    for i in 0..num_values.try_into().unwrap() {
+        let key = env.mem.read(keys + i);
+        let value = env.mem.read(values + i);
+        CFDictionarySetValue(env, dict, key, value);
+    }
+    dict
+}
+
 fn CFDictionaryAddValue(
     env: &mut Environment,
     dict: CFMutableDictionaryRef,
@@ -257,6 +276,7 @@ pub const CONSTANTS: ConstantExports = &[
 ];
 
 pub const FUNCTIONS: FunctionExports = &[
+    export_c_func!(CFDictionaryCreate(_, _, _, _, _, _)),
     export_c_func!(CFDictionaryCreateMutable(_, _, _, _)),
     export_c_func!(CFDictionaryAddValue(_, _, _)),
     export_c_func!(CFDictionarySetValue(_, _, _)),
