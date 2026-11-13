@@ -26,6 +26,7 @@ use std::collections::HashMap;
 
 type UIWebViewNavigationType = NSInteger;
 const UIWebViewNavigationTypeLinkClicked: UIWebViewNavigationType = 0;
+const UIWebViewNavigationTypeBackForward: UIWebViewNavigationType = 4;
 const UIWebViewNavigationTypeOther: UIWebViewNavigationType = 5;
 
 /// A load waiting for the run loop, as on iOS.
@@ -34,6 +35,8 @@ enum Load {
     Request(id),
     /// The page and its base `NSURL*` (may be nil).
     Html(String, id),
+    /// `goBack` (true) or `goForward` (false).
+    History(bool),
 }
 
 #[derive(Default)]
@@ -47,6 +50,12 @@ pub struct UIWebViewHostObject {
     loading: bool,
     /// The shown page's `NSURL*`, for links.
     base_url: id,
+    /// The shown page's HTML, if one is shown.
+    html: Option<String>,
+    /// Pages to go back and forward to (retained `NSURL*` and HTML), with
+    /// the nearest last.
+    back: Vec<(id, String)>,
+    forward: Vec<(id, String)>,
 }
 impl_HostObject_with_superclass!(UIWebViewHostObject);
 
@@ -96,8 +105,13 @@ pub const CLASSES: ClassExports = objc_classes! {
     let host = env.objc.borrow_mut::<UIWebViewHostObject>(this);
     let pending = host.pending.take();
     let base_url = std::mem::replace(&mut host.base_url, nil);
+    let mut history = std::mem::take(&mut host.back);
+    history.append(&mut host.forward);
     release_load(env, pending);
     release(env, base_url);
+    for (url, _) in history {
+        release(env, url);
+    }
     msg_super![env; this dealloc]
 }
 
@@ -118,6 +132,19 @@ pub const CLASSES: ClassExports = objc_classes! {
 - (())stopLoading {
     let pending = env.objc.borrow_mut::<UIWebViewHostObject>(this).pending.take();
     release_load(env, pending);
+}
+
+- (bool)canGoBack {
+    !env.objc.borrow::<UIWebViewHostObject>(this).back.is_empty()
+}
+- (bool)canGoForward {
+    !env.objc.borrow::<UIWebViewHostObject>(this).forward.is_empty()
+}
+- (())goBack {
+    start_load(env, this, Load::History(true));
+}
+- (())goForward {
+    start_load(env, this, Load::History(false));
 }
 
 - (())loadRequest:(id)request { // NSURLRequest*
@@ -315,7 +342,7 @@ fn add_scroll_view(env: &mut Environment, web_view: id) {
 fn release_load(env: &mut Environment, load: Option<Load>) {
     match load {
         Some(Load::Request(object) | Load::Html(_, object)) => release(env, object),
-        None => (),
+        Some(Load::History(_)) | None => (),
     }
 }
 
@@ -352,6 +379,10 @@ fn run_load(env: &mut Environment, web_view: id, load: Load) {
             release(env, base_url);
             (request, Some(html))
         }
+        Load::History(back) => {
+            go_history(env, web_view, back);
+            return;
+        }
     };
     if should_start(env, web_view, request, UIWebViewNavigationTypeOther) {
         let url: id = msg![env; request URL];
@@ -381,12 +412,64 @@ fn load_url(env: &mut Environment, web_view: id, url: id, html: Option<String>) 
         return;
     };
     retain(env, url);
+    // A new page: the shown one can be gone back to, and none forward.
     let host = env.objc.borrow_mut::<UIWebViewHostObject>(web_view);
     let old_base = std::mem::replace(&mut host.base_url, url);
-    release(env, old_base);
-    show_page(env, web_view, &html);
+    let old_html = host.html.replace(html.clone());
+    let forward = std::mem::take(&mut host.forward);
+    match old_html {
+        Some(old_html) => host.back.push((old_base, old_html)),
+        None => release(env, old_base),
+    }
+    for (url, _) in forward {
+        release(env, url);
+    }
+    finish_load(env, web_view, &html);
+}
+
+fn finish_load(env: &mut Environment, web_view: id, html: &str) {
+    show_page(env, web_view, html);
     env.objc.borrow_mut::<UIWebViewHostObject>(web_view).loading = false;
     tell_delegate(env, web_view, "webViewDidFinishLoad:");
+}
+
+/// Shows the previous (`back`) or next page again.
+fn go_history(env: &mut Environment, web_view: id, back: bool) {
+    let host = env.objc.borrow_mut::<UIWebViewHostObject>(web_view);
+    let list = if back {
+        &mut host.back
+    } else {
+        &mut host.forward
+    };
+    let Some((url, html)) = list.pop() else {
+        return;
+    };
+    let request: id = msg_class![env; NSURLRequest requestWithURL:url];
+    if !should_start(env, web_view, request, UIWebViewNavigationTypeBackForward) {
+        let host = env.objc.borrow_mut::<UIWebViewHostObject>(web_view);
+        let list = if back {
+            &mut host.back
+        } else {
+            &mut host.forward
+        };
+        list.push((url, html));
+        return;
+    }
+    let host = env.objc.borrow_mut::<UIWebViewHostObject>(web_view);
+    host.loading = true;
+    let old_base = std::mem::replace(&mut host.base_url, url);
+    let old_html = host.html.replace(html.clone());
+    let other = if back {
+        &mut host.forward
+    } else {
+        &mut host.back
+    };
+    match old_html {
+        Some(old_html) => other.push((old_base, old_html)),
+        None => release(env, old_base),
+    }
+    tell_delegate(env, web_view, "webViewDidStartLoad:");
+    finish_load(env, web_view, &html);
 }
 
 /// A page's HTML from the game's files: missing files show nothing.
