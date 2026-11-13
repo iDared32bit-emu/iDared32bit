@@ -21,9 +21,23 @@ const EAI_FAIL: i32 = 4;
 #[allow(non_camel_case_types)]
 pub type socklen_t = u32;
 
-// TODO: struct definition
+#[derive(Default)]
+pub struct State {
+    /// Static storage for `gethostbyname`'s result, which the next call may
+    /// overwrite: the [hostent] and what it points to.
+    hostent_tmp: Option<MutPtr<u8>>,
+}
+
+#[repr(C, packed)]
 #[allow(non_camel_case_types)]
-struct hostent {}
+struct hostent {
+    h_name: MutPtr<u8>,
+    h_aliases: MutPtr<MutPtr<u8>>,
+    h_addrtype: i32,
+    h_length: i32,
+    h_addr_list: MutPtr<MutPtr<u8>>,
+}
+unsafe impl SafeRead for hostent {}
 
 #[derive(Copy, Clone, Debug)]
 #[repr(C, packed)]
@@ -100,13 +114,44 @@ fn freeaddrinfo(env: &mut Environment, addrinfo: MutPtr<addrinfo>) {
 }
 
 fn gethostbyname(env: &mut Environment, name: ConstPtr<u8>) -> MutPtr<hostent> {
-    log!(
-        "TODO: gethostbyname({:?} \"{}\") => NULL",
-        name,
-        env.mem.cstr_at_utf8(name).unwrap()
-    );
-    // TODO: set h_errno
-    Ptr::null()
+    let name_str = env.mem.cstr_at_utf8(name).unwrap();
+    // A numeric address needs no lookup, so it works even in airplane mode.
+    let Ok(ip) = name_str.parse::<std::net::Ipv4Addr>() else {
+        log!("TODO: gethostbyname({:?} \"{}\") => NULL", name, name_str);
+        // TODO: set h_errno
+        return Ptr::null();
+    };
+    let name_str = ip.to_string();
+
+    // The hostent, then: aliases (just NULL), addresses (one, then NULL),
+    // the address, and the name (at most 16 bytes).
+    const SIZE: u32 = 20 + 4 + 8 + 4 + 16;
+    let base = *env
+        .libc_state
+        .netdb
+        .hostent_tmp
+        .get_or_insert_with(|| env.mem.alloc(SIZE).cast());
+    let aliases: MutPtr<MutPtr<u8>> = (base + 20).cast();
+    let addr_list: MutPtr<MutPtr<u8>> = (base + 24).cast();
+    let addr = base + 32;
+    let h_name = base + 36;
+    env.mem.write(aliases, Ptr::null());
+    env.mem.write(addr_list, addr);
+    env.mem.write(addr_list + 1, Ptr::null());
+    env.mem.bytes_at_mut(addr, 4).copy_from_slice(&ip.octets());
+    let name_bytes = env.mem.bytes_at_mut(h_name, 16);
+    name_bytes.fill(0);
+    name_bytes[..name_str.len()].copy_from_slice(name_str.as_bytes());
+    let entry = hostent {
+        h_name,
+        h_aliases: aliases,
+        h_addrtype: AF_INET,
+        h_length: 4,
+        h_addr_list: addr_list,
+    };
+    let entry_ptr: MutPtr<hostent> = base.cast();
+    env.mem.write(entry_ptr, entry);
+    entry_ptr
 }
 
 fn gethostent(_env: &mut Environment) -> MutPtr<hostent> {

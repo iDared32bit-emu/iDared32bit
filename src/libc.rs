@@ -136,6 +136,7 @@ pub struct State {
     pub stdio: stdio::State,
     time: time::State,
     errno: errno::State,
+    netdb: netdb::State,
     clocale: clocale::State,
     mach_vm: mach::vm_map::State,
     malloc: malloc::State,
