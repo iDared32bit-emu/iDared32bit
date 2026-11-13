@@ -23,6 +23,7 @@ Compatibility:
 - Fixed crashes in some games that slide between screens.
 - Added tab bars, so games that use them can switch between their screens.
 - Added action sheets, so games that use them can offer their choices.
+- Added loading spinners, which some games show while loading.
 - Web pages in games (help, about and credits screens) are now shown, with their colours and fonts.
 - Games no longer quit when opening a link that no app on the device could open.
 - Text in the Verdana font is now drawn with a much closer substitute.

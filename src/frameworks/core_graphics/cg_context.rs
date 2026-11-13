@@ -328,7 +328,7 @@ fn CGContextSetGrayStrokeColor(
         alpha,
     );
 }
-fn CGContextSetRGBStrokeColor(
+pub fn CGContextSetRGBStrokeColor(
     env: &mut Environment,
     context: CGContextRef,
     r: CGFloat,
@@ -674,14 +674,14 @@ fn CGContextShowGlyphsAtPositions(
     }
 }
 
-fn CGContextSetLineCap(env: &mut Environment, context: CGContextRef, cap: CGLineCap) {
+pub fn CGContextSetLineCap(env: &mut Environment, context: CGContextRef, cap: CGLineCap) {
     log_dbg!("CGContextSetLineCap({:?}, {})", context, cap);
 
     assert!(cap == kCGLineCapButt || cap == kCGLineCapRound || cap == kCGLineCapSquare);
     env.objc.borrow_mut::<CGContextHostObject>(context).line_cap = cap;
 }
 
-fn CGContextSetLineWidth(env: &mut Environment, context: CGContextRef, width: CGFloat) {
+pub fn CGContextSetLineWidth(env: &mut Environment, context: CGContextRef, width: CGFloat) {
     log_dbg!("CGContextSetLineCap({:?}, {})", context, width,);
 
     assert!(width > 0.0);
@@ -708,16 +708,21 @@ fn path(env: &mut Environment, context: CGContextRef) -> &mut PathBuilder {
     &mut env.objc.borrow_mut::<CGContextHostObject>(context).path
 }
 
-fn CGContextBeginPath(env: &mut Environment, context: CGContextRef) {
+pub fn CGContextBeginPath(env: &mut Environment, context: CGContextRef) {
     *path(env, context) = PathBuilder::new();
 }
 
-fn CGContextMoveToPoint(env: &mut Environment, context: CGContextRef, x: CGFloat, y: CGFloat) {
+pub fn CGContextMoveToPoint(env: &mut Environment, context: CGContextRef, x: CGFloat, y: CGFloat) {
     let p = device_point(env, context, x, y);
     path(env, context).move_to(p.x, p.y);
 }
 
-fn CGContextAddLineToPoint(env: &mut Environment, context: CGContextRef, x: CGFloat, y: CGFloat) {
+pub fn CGContextAddLineToPoint(
+    env: &mut Environment,
+    context: CGContextRef,
+    x: CGFloat,
+    y: CGFloat,
+) {
     let p = device_point(env, context, x, y);
     // Without a current point, iOS ignores it.
     if !path(env, context).is_empty() {
@@ -880,7 +885,7 @@ fn CGContextFillPath(env: &mut Environment, context: CGContextRef) {
     }
 }
 
-fn CGContextStrokePath(env: &mut Environment, context: CGContextRef) {
+pub fn CGContextStrokePath(env: &mut Environment, context: CGContextRef) {
     let path = std::mem::take(path(env, context));
     if let Some(path) = path.finish() {
         cg_bitmap_context::draw_path(env, context, &path, /* stroke: */ true);
