@@ -29,6 +29,7 @@ Compatibility:
 - Games no longer quit when opening a link that no app on the device could open.
 - Games that handle errors (such as having no network) with exceptions no longer crash.
 - Text in the Verdana font is now drawn with a much closer substitute.
+- Fixed crashes in some games' online screens, and the game turning sideways after closing them.
 - Various small fixes.
 
 ## v1.5.2 (2026-11-07)
