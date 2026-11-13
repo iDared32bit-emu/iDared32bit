@@ -16,7 +16,8 @@ use crate::frameworks::core_foundation::time::{CFAbsoluteTime, CFTimeInterval};
 use crate::frameworks::core_foundation::CFIndex;
 use crate::mem::{MutPtr, MutVoidPtr, SafeRead};
 use crate::objc::{
-    id, msg, msg_class, nil, objc_classes, Class, ClassExports, HostObject, NSZonePtr,
+    id, msg, msg_class, nil, objc_classes, release, retain, Class, ClassExports, HostObject,
+    NSZonePtr,
 };
 use crate::Environment;
 
@@ -74,11 +75,14 @@ fn CFRunLoopTimerCreate(
     let selector = env.objc.lookup_selector("timerFireMethod:").unwrap();
 
     let repeats = interval > 0.0;
-    msg_class![env; NSTimer timerWithTimeInterval:interval
-                                           target:target
-                                         selector:selector
-                                         userInfo:nil
-                                          repeats:repeats]
+    let timer: id = msg_class![env; NSTimer timerWithTimeInterval:interval
+                                                       target:target
+                                                     selector:selector
+                                                     userInfo:nil
+                                                      repeats:repeats];
+    // The timer keeps the target; the caller owns the timer (Create rule).
+    release(env, target);
+    retain(env, timer)
 }
 
 fn CFRunLoopAddTimer(
