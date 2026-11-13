@@ -88,6 +88,23 @@ pub const CLASSES: ClassExports = objc_classes! {
     nil
 }
 
++ (id)pathForResource:(id)name // NSString*
+               ofType:(id)extension // NSString*
+          inDirectory:(id)bundle_path { // NSString*
+    // A throwaway bundle for the path, to search it like any other.
+    let host_object = NSBundleHostObject {
+        bundle: None,
+        bundle_path,
+        bundle_identifier: nil,
+        bundle_url: None,
+        info_dictionary: None,
+    };
+    let bundle = env.objc.alloc_object(this, Box::new(host_object), &mut env.mem);
+    let path: id = msg![env; bundle pathForResource:name ofType:extension inDirectory:nil];
+    release(env, bundle);
+    path
+}
+
 + (id)preferredLocalizationsFromArray:(id)localizations_array { // NSArray<NSString *> *
     let preferredLocalizations = CFBundleCopyPreferredLocalizationsFromArray(env, localizations_array);
     autorelease(env, preferredLocalizations)
