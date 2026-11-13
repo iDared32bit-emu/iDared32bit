@@ -59,6 +59,8 @@ struct UIViewControllerHostObject {
     /// The view came with the controller in a nib, and `viewDidLoad` is
     /// still to be sent when it's first asked for.
     view_did_load_pending: bool,
+    /// What the window rotated it to, if it did.
+    interface_orientation: Option<UIInterfaceOrientation>,
 }
 impl HostObject for UIViewControllerHostObject {}
 
@@ -399,8 +401,19 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (UIInterfaceOrientation)interfaceOrientation {
+    // As on iOS, setting the status bar's orientation doesn't change it.
+    let host = env.objc.borrow::<UIViewControllerHostObject>(this);
+    if let Some(orientation) = host.interface_orientation {
+        return orientation;
+    }
     let app: id = msg_class![env; UIApplication sharedApplication];
     msg![env; app statusBarOrientation]
+}
+
+- (())_touchHLE_setInterfaceOrientation:(UIInterfaceOrientation)orientation {
+    env.objc
+        .borrow_mut::<UIViewControllerHostObject>(this)
+        .interface_orientation = Some(orientation);
 }
 
 // UIResponder implementation
