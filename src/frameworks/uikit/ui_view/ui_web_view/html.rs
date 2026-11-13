@@ -1097,8 +1097,10 @@ fn tokenize(html: &str) -> Vec<Token> {
             && rest[1..]
                 .starts_with(|c: char| c.is_ascii_alphabetic() || matches!(c, '/' | '!' | '?'));
         if !is_tag {
-            // A '<' that doesn't start a tag is text.
-            let end = rest[1..].find('<').map_or(rest.len(), |i| i + 1);
+            // A '<' that doesn't start a tag is text. The first character
+            // may be more than a byte.
+            let first = rest.chars().next().unwrap().len_utf8();
+            let end = rest[first..].find('<').map_or(rest.len(), |i| i + first);
             tokens.push(Token::Text(decode_entities(&rest[..end])));
             rest = &rest[end..];
             continue;
@@ -1310,6 +1312,12 @@ mod tests {
         let page = layout("<center>ab</center><p>x<p>y", 120.0, &mut Fixed);
         assert_eq!(page.fragments[0].x, 8.0 + (104.0 - 20.0) / 2.0);
         assert_eq!(page.fragments[2].y - page.fragments[1].y, 32.0);
+    }
+
+    #[test]
+    fn text_starting_with_a_multibyte_character() {
+        let page = layout("\u{2606} Web page<br>\u{fffd}x", 320.0, &mut Fixed);
+        assert_eq!(texts(&page), ["\u{2606} Web page", "\u{fffd}x"]);
     }
 
     #[test]
