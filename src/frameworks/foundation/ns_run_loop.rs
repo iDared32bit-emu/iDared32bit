@@ -233,6 +233,21 @@ pub fn remove_audio_queue(env: &mut Environment, run_loop: id, queue: AudioQueue
 }
 
 /// For use by NSTimer so it can remove itself once it's invalidated.
+/// Whether a timer is in a run loop (`CFRunLoopContainsTimer`).
+pub fn contains_timer(env: &mut Environment, run_loop: id, timer: id) -> bool {
+    let NSRunLoopHostObject { timers, .. } = env.objc.borrow(run_loop);
+    timers.contains(&timer)
+}
+
+/// Takes a timer out of a run loop without invalidating it
+/// (`CFRunLoopRemoveTimer`). Does nothing if it isn't there.
+pub fn take_out_timer(env: &mut Environment, run_loop: id, timer: id) {
+    if contains_timer(env, run_loop, timer) {
+        ns_timer::clear_run_loop(env, timer);
+        remove_timer(env, run_loop, timer);
+    }
+}
+
 pub(super) fn remove_timer(env: &mut Environment, run_loop: id, timer: id) {
     log_dbg!("Removing timer {:?} from run loop {:?}", timer, run_loop,);
     let NSRunLoopHostObject { timers, .. } = env.objc.borrow_mut(run_loop);

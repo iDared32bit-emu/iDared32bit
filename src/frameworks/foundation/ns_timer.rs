@@ -126,8 +126,9 @@ pub const CLASSES: ClassExports = objc_classes! {
 - (())invalidate {
     let timer = env.objc.borrow_mut::<NSTimerHostObject>(this);
     // Timer might already be invalid, don't try to remove it twice.
-    if timer.due_by.take().is_some() {
-        let run_loop = timer.run_loop;
+    // It may also not be in a run loop (any more).
+    if timer.due_by.take().is_some() && timer.run_loop != nil {
+        let run_loop = std::mem::replace(&mut timer.run_loop, nil);
         ns_run_loop::remove_timer(env, run_loop, this);
     }
 }
@@ -167,6 +168,11 @@ pub fn set_time_interval(env: &mut Environment, timer: id, interval: NSTimeInter
 }
 
 /// For use by `NSRunLoop`
+/// For `CFRunLoopRemoveTimer`: the timer stays valid, out of any run loop.
+pub(super) fn clear_run_loop(env: &mut Environment, timer: id) {
+    env.objc.borrow_mut::<NSTimerHostObject>(timer).run_loop = nil;
+}
+
 pub(super) fn set_run_loop(env: &mut Environment, timer: id, run_loop: id) {
     let host_object = env.objc.borrow_mut::<NSTimerHostObject>(timer);
     assert!(host_object.run_loop == nil); // TODO: what do we do here?
