@@ -404,12 +404,35 @@ fn read_file(env: &mut Environment, url: id) -> String {
     }
 }
 
-/// Text in the page's encoding: UTF-8 unless it says Latin-1.
+/// Text in the page's encoding: the one given, else the `charset` the page
+/// names near its start (as WebKit looks for it), else UTF-8 if it's valid,
+/// else Latin-1.
 fn decode(bytes: &[u8], encoding: &str) -> String {
-    match encoding {
-        "iso-8859-1" | "latin1" | "windows-1252" => bytes.iter().map(|&b| b as char).collect(),
-        _ => String::from_utf8_lossy(bytes).into_owned(),
+    let label = if encoding.is_empty() {
+        meta_charset(bytes)
+    } else {
+        Some(encoding.to_string())
+    };
+    if let Some(encoding) = label.and_then(|l| encoding_rs::Encoding::for_label(l.as_bytes())) {
+        return encoding.decode(bytes).0.into_owned();
     }
+    match std::str::from_utf8(bytes) {
+        Ok(text) => text.to_owned(),
+        Err(_) => encoding_rs::WINDOWS_1252.decode(bytes).0.into_owned(),
+    }
+}
+
+/// The `charset=` a page names in its first 1024 bytes, e.g. in
+/// `<meta http-equiv="Content-Type" content="text/html; charset=euc-kr">`.
+fn meta_charset(bytes: &[u8]) -> Option<String> {
+    let head = &bytes[..bytes.len().min(1024)];
+    let head = String::from_utf8_lossy(head).to_ascii_lowercase();
+    let start = head.find("charset=")? + "charset=".len();
+    let rest = head[start..].trim_start_matches(['"', '\'']);
+    let end = rest
+        .find(|c: char| !(c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | ':' | '.')))
+        .unwrap_or(rest.len());
+    (end > 0).then(|| rest[..end].to_string())
 }
 
 fn plain_text_html(text: &str) -> String {
