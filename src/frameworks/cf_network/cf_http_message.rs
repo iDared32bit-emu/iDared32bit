@@ -11,9 +11,9 @@ use crate::frameworks::core_foundation::cf_allocator::{kCFAllocatorDefault, CFAl
 use crate::frameworks::core_foundation::cf_data::CFDataRef;
 use crate::frameworks::core_foundation::cf_string::CFStringRef;
 use crate::frameworks::core_foundation::cf_url::CFURLRef;
-use crate::frameworks::core_foundation::{CFIndex, CFOptionFlags, CFTypeRef};
+use crate::frameworks::core_foundation::{CFOptionFlags, CFTypeRef};
 use crate::frameworks::foundation::ns_string;
-use crate::mem::{MutPtr, MutVoidPtr, Ptr};
+use crate::mem::{MutVoidPtr, Ptr};
 use crate::objc::msg;
 use crate::Environment;
 
@@ -111,28 +111,6 @@ fn CFReadStreamSetClient(
     }
     false
 }
-fn CFReadStreamOpen(_env: &mut Environment, stream: CFReadStreamRef) -> bool {
-    if !stream.is_null() {
-        todo!("CFReadStreamOpen({:?})", stream);
-    }
-    false
-}
-fn CFReadStreamRead(
-    _env: &mut Environment,
-    stream: CFReadStreamRef,
-    buffer: MutPtr<u8>,
-    buffer_length: CFIndex,
-) -> CFIndex {
-    if !stream.is_null() {
-        todo!(
-            "CFReadStreamRead({:?}, {:?}, {})",
-            stream,
-            buffer,
-            buffer_length
-        );
-    }
-    -1 // The stream isn't open.
-}
 fn CFReadStreamCopyProperty(
     env: &mut Environment,
     stream: CFReadStreamRef,
@@ -146,11 +124,6 @@ fn CFReadStreamCopyProperty(
         );
     }
     Ptr::null()
-}
-fn CFReadStreamClose(_env: &mut Environment, stream: CFReadStreamRef) {
-    if !stream.is_null() {
-        todo!("CFReadStreamClose({:?})", stream);
-    }
 }
 
 const kCFHTTPVersion1_0: &str = "kCFHTTPVersion1_0";
@@ -216,8 +189,5 @@ pub const FUNCTIONS: FunctionExports = &[
     // TODO: move to correct location
     export_c_func!(CFReadStreamSetProperty(_, _, _)),
     export_c_func!(CFReadStreamSetClient(_, _, _, _)),
-    export_c_func!(CFReadStreamOpen(_)),
-    export_c_func!(CFReadStreamRead(_, _, _)),
     export_c_func!(CFReadStreamCopyProperty(_, _)),
-    export_c_func!(CFReadStreamClose(_)),
 ];
