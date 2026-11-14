@@ -38,6 +38,9 @@ pub struct UILabelHostObject {
     /// `UIColor*`, used instead of `text_color` while highlighted.
     highlighted_text_color: id,
     highlighted: bool,
+    /// `UIColor*`, or nil for no shadow.
+    shadow_color: id,
+    shadow_offset: CGSize,
 }
 impl_HostObject_with_superclass!(UILabelHostObject);
 impl Default for UILabelHostObject {
@@ -54,6 +57,12 @@ impl Default for UILabelHostObject {
             minimum_font_size: 0.0,
             highlighted_text_color: nil,
             highlighted: false,
+            shadow_color: nil,
+            // As on iOS: a point above, once there's a colour.
+            shadow_offset: CGSize {
+                width: 0.0,
+                height: -1.0,
+            },
         }
     }
 }
@@ -141,11 +150,14 @@ pub const CLASSES: ClassExports = objc_classes! {
         minimum_font_size: _,
         highlighted_text_color,
         highlighted: _,
+        shadow_color,
+        shadow_offset: _,
     } = env.objc.borrow(this);
     release(env, text);
     release(env, font);
     release(env, text_color);
     release(env, highlighted_text_color);
+    release(env, shadow_color);
     msg_super![env; this dealloc]
 }
 
@@ -283,11 +295,22 @@ pub const CLASSES: ClassExports = objc_classes! {
     msg_super![env; this setBackgroundColor:color]
 }
 
-- (())setShadowColor:(id)color { // UIColor*
-    todo_objc_setter!(this, color);
+- (id)shadowColor {
+    env.objc.borrow::<UILabelHostObject>(this).shadow_color
 }
-- (())setShadowOffset:(CGSize)value {
-    todo_objc_setter!(this, value);
+- (())setShadowColor:(id)color { // UIColor*
+    retain(env, color);
+    let host = env.objc.borrow_mut::<UILabelHostObject>(this);
+    let old = std::mem::replace(&mut host.shadow_color, color);
+    release(env, old);
+    () = msg![env; this setNeedsDisplay];
+}
+- (CGSize)shadowOffset {
+    env.objc.borrow::<UILabelHostObject>(this).shadow_offset
+}
+- (())setShadowOffset:(CGSize)offset {
+    env.objc.borrow_mut::<UILabelHostObject>(this).shadow_offset = offset;
+    () = msg![env; this setNeedsDisplay];
 }
 
 - (())setOpaque:(bool)_opaque {
@@ -338,6 +361,8 @@ pub const CLASSES: ClassExports = objc_classes! {
         minimum_font_size,
         highlighted_text_color,
         highlighted,
+        shadow_color,
+        shadow_offset,
     } = env.objc.borrow_mut(this);
 
     let text_color = if highlighted && highlighted_text_color != nil {
@@ -345,8 +370,6 @@ pub const CLASSES: ClassExports = objc_classes! {
     } else {
         text_color
     };
-    let (r, g, b, a) = ui_color::get_rgba(&env.objc, text_color);
-    CGContextSetRGBFillColor(env, context, r, g, b, a);
 
     let single_line = number_of_lines == 1;
 
@@ -380,25 +403,42 @@ pub const CLASSES: ClassExports = objc_classes! {
         },
     };
 
-    let _size: CGSize = if single_line {
-        let x_offset = match text_alignment {
-            UITextAlignmentLeft => 0.0,
-            UITextAlignmentCenter => 0.5,
-            UITextAlignmentRight => 1.0,
-            _ => unimplemented!(),
+    // The shadow is the text again, moved and in its own colour, under it.
+    let no_offset = CGSize { width: 0.0, height: 0.0 };
+    let mut passes = vec![(text_color, no_offset)];
+    if shadow_color != nil {
+        passes.insert(0, (shadow_color, shadow_offset));
+    }
+    for (color, offset) in passes {
+        let (r, g, b, a) = ui_color::get_rgba(&env.objc, color);
+        CGContextSetRGBFillColor(env, context, r, g, b, a);
+        let rect = CGRect {
+            origin: CGPoint {
+                x: rect.origin.x + offset.width,
+                y: rect.origin.y + offset.height,
+            },
+            size: rect.size,
         };
-        let point = CGPoint {
-            x: rect.origin.x + x_offset * (bounds.size.width - calculated_size.width),
-            y: rect.origin.y
+        let _size: CGSize = if single_line {
+            let x_offset = match text_alignment {
+                UITextAlignmentLeft => 0.0,
+                UITextAlignmentCenter => 0.5,
+                UITextAlignmentRight => 1.0,
+                _ => unimplemented!(),
+            };
+            let point = CGPoint {
+                x: rect.origin.x + x_offset * (bounds.size.width - calculated_size.width),
+                y: rect.origin.y
+            };
+            msg![env; text drawAtPoint:point
+                              withFont:font]
+        } else {
+            msg![env; text drawInRect:rect
+                             withFont:font
+                        lineBreakMode:line_break_mode
+                            alignment:text_alignment]
         };
-        msg![env; text drawAtPoint:point
-                          withFont:font]
-    } else {
-        msg![env; text drawInRect:rect
-                         withFont:font
-                    lineBreakMode:line_break_mode
-                        alignment:text_alignment]
-    };
+    }
 }
 
 @end
