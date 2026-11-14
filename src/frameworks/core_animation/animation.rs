@@ -151,6 +151,21 @@ impl State {
         presentation
     }
 
+    /// The layer as it's on screen now, mid-animation. Unlike
+    /// [Self::create_presentation_layer], it starts and stops nothing:
+    /// that's left to the compositor.
+    pub fn current_presentation(env: &mut Environment, layer: id) -> CALayerHostObject {
+        let mut state = State::default();
+        let presentation = state.create_presentation_layer(env, layer);
+        for animation in state.started_animations {
+            *get_animation_start_time(env, animation) = None;
+        }
+        for (_, animation, ..) in state.finished_animations {
+            *get_animation_stopped(env, animation) = false;
+        }
+        presentation
+    }
+
     pub fn update_started_and_finished_animations(self, env: &mut Environment) {
         // A delegate may remove animations, so keep them alive until done.
         for (layer, animation, ..) in &self.finished_animations {

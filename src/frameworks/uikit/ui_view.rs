@@ -66,6 +66,8 @@ const touchHLE_kCATransactionAnimationWillStartSelector: &str =
     "_touchHLE_kCATransactionAnimationWillStartSelector";
 const touchHLE_kCATransactionAnimationDidStopSelector: &str =
     "_touchHLE_kCATransactionAnimationDidStopSelector";
+pub const touchHLE_kCATransactionAnimationBeginsFromCurrentState: &str =
+    "_touchHLE_kCATransactionAnimationBeginsFromCurrentState";
 const touchHLE_kCATransactionAnimationTransition: &str =
     "_touchHLE_kCATransactionAnimationTransition";
 const touchHLE_kCATransactionAnimationTransitionView: &str =
@@ -327,6 +329,13 @@ pub const CLASSES: ClassExports = objc_classes! {
     log_dbg!("[UIView setAnimationDidStopSelector:{:?} ({})]", selector, selector_str);
     let selector_nsstring = from_rust_string(env, selector_str.to_string());
     () = msg_class![env; CATransaction setValue:selector_nsstring forKey:(get_static_str(env, touchHLE_kCATransactionAnimationDidStopSelector))];
+}
+
++ (())setAnimationBeginsFromCurrentState:(bool)from_current {
+    log_dbg!("[UIView setAnimationBeginsFromCurrentState:{}]", from_current);
+    let value: id = msg_class![env; NSNumber numberWithBool:from_current];
+    let key = get_static_str(env, touchHLE_kCATransactionAnimationBeginsFromCurrentState);
+    () = msg_class![env; CATransaction setValue:value forKey:key];
 }
 
 // The cache flag only changes how fast it draws on iOS.

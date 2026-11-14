@@ -27,6 +27,7 @@ use crate::frameworks::core_graphics::cg_image::{
 };
 use crate::frameworks::core_graphics::{CGFloat, CGPoint, CGRect, CGSize};
 use crate::frameworks::foundation::ns_string::{self, get_static_str, to_rust_string};
+use crate::frameworks::uikit::ui_view::touchHLE_kCATransactionAnimationBeginsFromCurrentState;
 use crate::mem::{GuestUSize, Ptr};
 use crate::objc::{
     autorelease, id, msg, msg_class, nil, objc_classes, release, retain, todo_objc_setter,
@@ -880,11 +881,51 @@ fn add_default_implied_basic_animation(
     from_value: id,
     to_value: id,
 ) {
+    let from_value = if begins_from_current_state(env, layer) {
+        current_value(env, layer, key_path).unwrap_or(from_value)
+    } else {
+        from_value
+    };
     let key_path = get_static_str(env, key_path);
     let animation = msg_class![env; CABasicAnimation animationWithKeyPath:key_path];
     () = msg![env; animation setFromValue: from_value];
     () = msg![env; animation setToValue: to_value];
     ca_transaction::ThreadLocalState::add_animation(env, layer, animation);
+}
+
+/// For `+[UIView setAnimationBeginsFromCurrentState:]`.
+fn begins_from_current_state(env: &mut Environment, layer: id) -> bool {
+    if env.framework_state.uikit.ui_view.animation_block_count == 0 {
+        return false;
+    }
+    let delegate = msg![env; layer delegate];
+    let uiview_class = env.objc.get_known_class("UIView", &mut env.mem);
+    let delegate_is_uiview: bool = msg![env; delegate isKindOfClass:uiview_class];
+    if !delegate_is_uiview {
+        return false;
+    }
+    let key = get_static_str(env, touchHLE_kCATransactionAnimationBeginsFromCurrentState);
+    let value: id = msg_class![env; CATransaction valueForKey:key];
+    value != nil && msg![env; value boolValue]
+}
+
+/// A property's value as it's on screen now, mid-animation. Colours aren't
+/// handled: they start from the old value.
+fn current_value(env: &mut Environment, layer: id, key_path: &str) -> Option<id> {
+    let now = super::animation::State::current_presentation(env, layer);
+    Some(match key_path {
+        "bounds" => msg_class![env; NSValue valueWithCGRect:(now.bounds)],
+        "position" => msg_class![env; NSValue valueWithCGPoint:(now.position)],
+        "anchorPoint" => msg_class![env; NSValue valueWithCGPoint:(now.anchor_point)],
+        "transform" => {
+            let transform = CATransform3D::from(now.affine_transform);
+            msg_class![env; NSValue valueWithCATransform3D:transform]
+        }
+        "hidden" => msg_class![env; NSNumber numberWithBool:(now.hidden)],
+        "opacity" => msg_class![env; NSNumber numberWithFloat:(now.opacity)],
+        "cornerRadius" => msg_class![env; NSNumber numberWithFloat:(now.corner_radius)],
+        _ => return None,
+    })
 }
 
 // TODO: Remove once CAActions are implemented
