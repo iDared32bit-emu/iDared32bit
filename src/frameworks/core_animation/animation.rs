@@ -22,8 +22,8 @@ use crate::frameworks::core_animation::ca_animation::{
     get_animation_start_time, get_animation_stopped, get_group_animations, get_keyframes,
     get_transition, kCAAnimationCubic, kCAAnimationCubicPaced, kCAAnimationDiscrete,
     kCAAnimationPaced, kCAFillModeBackwards, kCAFillModeBoth, kCAFillModeForwards,
-    kCATransitionFade, kCATransitionMoveIn, kCATransitionPush, kCATransitionReveal,
-    CAMediaTimingFillMode, Keyframes,
+    kCATransitionFade, kCATransitionMoveIn, kCATransitionOglFlip, kCATransitionPush,
+    kCATransitionReveal, CAMediaTimingFillMode, Keyframes,
 };
 use crate::frameworks::core_animation::ca_layer::remove_anonymous_animation;
 use crate::frameworks::core_animation::ca_transform_3d::CATransform3D;
@@ -229,6 +229,7 @@ fn apply_animation(
             kCATransitionPush,
             kCATransitionMoveIn,
             kCATransitionReveal,
+            kCATransitionOglFlip,
         ]
         .contains(&transition_type.as_str())
         {

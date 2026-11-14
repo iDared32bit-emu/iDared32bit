@@ -12,7 +12,7 @@
 
 use super::ca_animation::{
     get_transition, kCATransitionFromBottom, kCATransitionFromRight, kCATransitionFromTop,
-    kCATransitionMoveIn, kCATransitionPush, kCATransitionReveal,
+    kCATransitionMoveIn, kCATransitionOglFlip, kCATransitionPush, kCATransitionReveal,
 };
 use super::ca_eagl_layer::find_fullscreen_eagl_layer;
 use super::ca_layer::{CALayerHostObject, ContentsGravity};
@@ -654,6 +654,10 @@ unsafe fn composite_layer_recursive(
             }
             _ => cumulative_transform,
         };
+        let cumulative_transform = match motion.and_then(|m| m.new_turn) {
+            Some(turn) => turn.multiply(&cumulative_transform),
+            None => cumulative_transform,
+        };
 
         // Reposition and scale the unit quad (see ARRAY_BUFFER binding)
         // so it will have the right size in this layer's co-ordinate space.
@@ -687,7 +691,8 @@ unsafe fn composite_layer_recursive(
     }
     set_clip(gles.as_mut(), clip);
 
-    if host_obj.hidden {
+    // A flip's new side doesn't show until it turns to face the front.
+    if host_obj.hidden || motion.is_some_and(|m| m.new_turn.is_none()) {
         std::mem::drop(gles);
         let animation = host_obj.transition.unwrap().0;
         draw_transition_snapshot(
@@ -1007,6 +1012,10 @@ struct TransitionMotion {
     old_on_top: bool,
     /// Whether the pictures are clipped to the layer's bounds.
     clips: bool,
+    /// How a flip turns each picture, in the layer's co-ordinates, or
+    /// [None] while that picture faces away.
+    new_turn: Option<Matrix<4>>,
+    old_turn: Option<Matrix<4>>,
 }
 
 fn transition_motion(
@@ -1032,11 +1041,34 @@ fn transition_motion(
         old_alpha: 1.0,
         old_on_top,
         clips: true,
+        new_turn: Some(Matrix::identity()),
+        old_turn: Some(Matrix::identity()),
     };
     match transition_type.as_str() {
         t if t == kCATransitionPush => moving(coming_in, going_out, true),
         t if t == kCATransitionMoveIn => moving(coming_in, (0.0, 0.0), false),
         t if t == kCATransitionReveal => moving((0.0, 0.0), going_out, true),
+        t if t == kCATransitionOglFlip => {
+            // Turns half a turn about the middle, the side the new picture
+            // comes from first toward the viewer.
+            let (about_y, sign) = match subtype.as_deref() {
+                Some(s) if s == kCATransitionFromRight => (true, -1.0),
+                Some(s) if s == kCATransitionFromTop => (false, -1.0),
+                Some(s) if s == kCATransitionFromBottom => (false, 1.0),
+                _ => (true, 1.0),
+            };
+            let angle = sign * progress * std::f32::consts::PI;
+            let turn = |angle: f32| flip_turn(bounds, about_y, angle);
+            TransitionMotion {
+                new_offset: (0.0, 0.0),
+                old_offset: (0.0, 0.0),
+                old_alpha: 1.0,
+                old_on_top: true,
+                clips: false,
+                new_turn: turn(angle - sign * std::f32::consts::PI),
+                old_turn: turn(angle),
+            }
+        }
         // Fade: the old picture fades out over the new one.
         _ => TransitionMotion {
             new_offset: (0.0, 0.0),
@@ -1044,8 +1076,40 @@ fn transition_motion(
             old_alpha: 1.0 - progress,
             old_on_top: true,
             clips: false,
+            new_turn: Some(Matrix::identity()),
+            old_turn: Some(Matrix::identity()),
         },
     }
+}
+
+/// A turn of `angle` about the layer's middle, vertical (`about_y`) or
+/// horizontal, seen in perspective; [None] if it faces away.
+fn flip_turn(bounds: CGRect, about_y: bool, angle: f32) -> Option<Matrix<4>> {
+    if angle.abs() >= std::f32::consts::FRAC_PI_2 {
+        return None;
+    }
+    let cx = bounds.origin.x + bounds.size.width / 2.0;
+    let cy = bounds.origin.y + bounds.size.height / 2.0;
+    let rotation = Matrix::<4>::from(&if about_y {
+        Matrix::y_rotation(angle)
+    } else {
+        Matrix::x_rotation(angle)
+    });
+    // Seen from twice the layer's size away. Depth then becomes 0, as
+    // nothing else is drawn in 3D and the projection would clip it.
+    let distance = 2.0 * bounds.size.width.max(bounds.size.height);
+    let perspective = Matrix::from_columns([
+        [1.0, 0.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0, 0.0],
+        [0.0, 0.0, 0.0, -1.0 / distance],
+        [0.0, 0.0, 0.0, 1.0],
+    ]);
+    Some(
+        Matrix::translate_3d(-cx, -cy, 0.0)
+            .multiply(&rotation)
+            .multiply(&perspective)
+            .multiply(&Matrix::translate_3d(cx, cy, 0.0)),
+    )
 }
 
 /// Draws the picture from before a transition where the layer is, moved and
@@ -1057,6 +1121,10 @@ unsafe fn draw_transition_snapshot(
     bounds: CGRect,
     cumulative_transform: Matrix<4>,
 ) {
+    // A flip's old side doesn't show once it turns away.
+    let Some(turn) = motion.old_turn else {
+        return;
+    };
     let state = &env.framework_state.core_animation.composition;
     // There's none if the transition began on the first frame.
     let Some(snapshot) = state
@@ -1096,6 +1164,7 @@ unsafe fn draw_transition_snapshot(
                 bounds.origin.y + oy,
                 0.0,
             ))
+            .multiply(&turn)
             .multiply(&cumulative_transform),
     );
 
@@ -1245,4 +1314,43 @@ unsafe fn upload_rgba8_pixels(gles: &mut dyn GLES, pixels: &[u8], dimensions: (u
         gles11::TEXTURE_WRAP_T,
         gles11::CLAMP_TO_EDGE as _,
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::frameworks::core_graphics::CGPoint;
+
+    /// Where a point in the layer ends up after a turn, in 2D.
+    fn turned(turn: Matrix<4>, x: f32, y: f32) -> (f32, f32) {
+        let [x, y, _, w] = turn.transform([x, y, 0.0, 1.0]);
+        (x / w, y / w)
+    }
+
+    #[test]
+    fn flip_turn_in_perspective() {
+        let bounds = CGRect {
+            origin: CGPoint { x: 0.0, y: 0.0 },
+            size: CGSize {
+                width: 320.0,
+                height: 480.0,
+            },
+        };
+        let flat = flip_turn(bounds, true, 0.0).unwrap();
+        assert_eq!(turned(flat, 10.0, 20.0), (10.0, 20.0));
+
+        let turn = flip_turn(bounds, true, std::f32::consts::FRAC_PI_4).unwrap();
+        // The middle stays put; the left side comes nearer, so it's taller
+        // than the right side, and both move in toward the middle.
+        let (cx, cy) = turned(turn, 160.0, 240.0);
+        assert!((cx - 160.0).abs() < 0.01 && (cy - 240.0).abs() < 0.01);
+        let (left_x, left_top) = turned(turn, 0.0, 0.0);
+        let (right_x, right_top) = turned(turn, 320.0, 0.0);
+        assert!(left_x > 0.0 && right_x < 320.0);
+        assert!(left_top < right_top);
+
+        // Edge-on or beyond, the side faces away.
+        assert!(flip_turn(bounds, true, std::f32::consts::FRAC_PI_2).is_none());
+        assert!(flip_turn(bounds, false, -2.0).is_none());
+    }
 }

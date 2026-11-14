@@ -28,6 +28,8 @@ pub const kCATransitionFade: &str = "fade";
 pub const kCATransitionMoveIn: &str = "moveIn";
 pub const kCATransitionPush: &str = "push";
 pub const kCATransitionReveal: &str = "reveal";
+/// Private, but games use it: a 3D flip, as UIView's flip transitions do.
+pub const kCATransitionOglFlip: &str = "oglFlip";
 
 pub type CATransitionSubtype = id; // NSString*
 pub const kCATransitionFromRight: &str = "fromRight";
