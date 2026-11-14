@@ -12,7 +12,7 @@ use crate::frameworks::core_graphics::{CGFloat, CGPoint, CGRect, CGSize};
 use crate::frameworks::foundation::ns_string::{get_static_str, to_rust_string};
 use crate::frameworks::foundation::NSInteger;
 use crate::objc::{
-    autorelease, id, msg, msg_class, objc_classes, ClassExports, HostObject, NSZonePtr,
+    autorelease, id, msg, msg_class, nil, objc_classes, ClassExports, HostObject, NSZonePtr,
 };
 use crate::Environment;
 use std::collections::HashMap;
@@ -365,6 +365,13 @@ pub fn size_with_font(
     text: &str,
     constrained: Option<(CGSize, UILineBreakMode)>,
 ) -> CGSize {
+    // As on iOS, a nil font's metrics are all zero, so nothing has a size.
+    if font == nil {
+        return CGSize {
+            width: 0.0,
+            height: 0.0,
+        };
+    }
     let host_object = env.objc.borrow::<UIFontHostObject>(font);
 
     let font = get_font(
