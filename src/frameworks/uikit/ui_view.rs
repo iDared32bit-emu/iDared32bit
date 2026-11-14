@@ -26,7 +26,9 @@ use core::panic;
 
 use super::ui_graphics::{UIGraphicsPopContext, UIGraphicsPushContext};
 use crate::frameworks::core_animation::ca_animation::{
-    kCAFillModeBackwards, CAMediaTimingFillMode,
+    kCAFillModeBackwards, kCATransitionFromBottom, kCATransitionFromLeft, kCATransitionFromRight,
+    kCATransitionFromTop, kCATransitionMoveIn, kCATransitionOglFlip, kCATransitionReveal,
+    CAMediaTimingFillMode,
 };
 use crate::frameworks::core_animation::ca_layer::{set_contents_gravity, ContentsGravity};
 use crate::frameworks::core_animation::ca_media_timing_function::{
@@ -64,12 +66,23 @@ const touchHLE_kCATransactionAnimationWillStartSelector: &str =
     "_touchHLE_kCATransactionAnimationWillStartSelector";
 const touchHLE_kCATransactionAnimationDidStopSelector: &str =
     "_touchHLE_kCATransactionAnimationDidStopSelector";
+const touchHLE_kCATransactionAnimationTransition: &str =
+    "_touchHLE_kCATransactionAnimationTransition";
+const touchHLE_kCATransactionAnimationTransitionView: &str =
+    "_touchHLE_kCATransactionAnimationTransitionView";
 
 type UIViewAnimationCurve = NSInteger;
 const UIViewAnimationCurveEaseInOut: UIViewAnimationCurve = 0;
 const UIViewAnimationCurveEaseIn: UIViewAnimationCurve = 1;
 const UIViewAnimationCurveEaseOut: UIViewAnimationCurve = 2;
 const UIViewAnimationCurveLinear: UIViewAnimationCurve = 3;
+
+type UIViewAnimationTransition = NSInteger;
+const UIViewAnimationTransitionNone: UIViewAnimationTransition = 0;
+const UIViewAnimationTransitionFlipFromLeft: UIViewAnimationTransition = 1;
+const UIViewAnimationTransitionFlipFromRight: UIViewAnimationTransition = 2;
+const UIViewAnimationTransitionCurlUp: UIViewAnimationTransition = 3;
+const UIViewAnimationTransitionCurlDown: UIViewAnimationTransition = 4;
 
 #[derive(Default)]
 pub struct State {
@@ -313,6 +326,16 @@ pub const CLASSES: ClassExports = objc_classes! {
     () = msg_class![env; CATransaction setValue:selector_nsstring forKey:(get_static_str(env, touchHLE_kCATransactionAnimationDidStopSelector))];
 }
 
+// The cache flag only changes how fast it draws on iOS.
++ (())setAnimationTransition:(UIViewAnimationTransition)transition
+                     forView:(id)view
+                       cache:(bool)_cache {
+    log_dbg!("[UIView setAnimationTransition:{} forView:{:?}]", transition, view);
+    let transition: id = msg_class![env; NSNumber numberWithInteger:transition];
+    () = msg_class![env; CATransaction setValue:transition forKey:(get_static_str(env, touchHLE_kCATransactionAnimationTransition))];
+    () = msg_class![env; CATransaction setValue:view forKey:(get_static_str(env, touchHLE_kCATransactionAnimationTransitionView))];
+}
+
 + (())beginAnimations:(id)animation_id // NSString*
               context:(ConstVoidPtr)context {
     log_dbg!("[UIView beginAnimations:{:?} context:{:?}]", animation_id, context);
@@ -332,6 +355,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 + (())commitAnimations {
     log_dbg!("[UIView commitAnimations]");
 
+    add_view_transition(env);
     // TODO: What if there's interleaved UIView animations and CATransactions?
     let animations = ca_transaction::ThreadLocalState::get_current_transaction(env).unwrap().get_animations();
     // A view that isn't in a window isn't drawn, so its changes take effect
@@ -1235,6 +1259,37 @@ pub const CLASSES: ClassExports = objc_classes! {
 };
 
 /// Whether a layer is in a window's layer tree, and so gets drawn.
+/// For `setAnimationTransition:forView:cache:`: adds the transition to the
+/// view's layer, to run with the block's other animations.
+fn add_view_transition(env: &mut Environment) {
+    let key = get_static_str(env, touchHLE_kCATransactionAnimationTransitionView);
+    let view: id = msg_class![env; CATransaction valueForKey:key];
+    let key = get_static_str(env, touchHLE_kCATransactionAnimationTransition);
+    let transition: id = msg_class![env; CATransaction valueForKey:key];
+    if view == nil || transition == nil {
+        return;
+    }
+    let transition: NSInteger = msg![env; transition integerValue];
+    let (transition_type, subtype) = match transition {
+        UIViewAnimationTransitionNone => return,
+        UIViewAnimationTransitionFlipFromLeft => (kCATransitionOglFlip, kCATransitionFromLeft),
+        UIViewAnimationTransitionFlipFromRight => (kCATransitionOglFlip, kCATransitionFromRight),
+        // TODO: a real page curl. For now, the old page slides up off the
+        // new one, or the new one slides down over the old one.
+        UIViewAnimationTransitionCurlUp => (kCATransitionReveal, kCATransitionFromBottom),
+        UIViewAnimationTransitionCurlDown => (kCATransitionMoveIn, kCATransitionFromTop),
+        _ => panic!("Unknown UIViewAnimationTransition {}", transition),
+    };
+    let animation: id = msg_class![env; CATransition new];
+    let transition_type = get_static_str(env, transition_type);
+    () = msg![env; animation setType:transition_type];
+    let subtype = get_static_str(env, subtype);
+    () = msg![env; animation setSubtype:subtype];
+    let layer: id = msg![env; view layer];
+    ca_transaction::ThreadLocalState::add_animation(env, layer, animation);
+    release(env, animation);
+}
+
 fn layer_is_in_window(env: &mut Environment, mut layer: id) -> bool {
     let window_class = env.objc.get_known_class("UIWindow", &mut env.mem);
     while layer != nil {
