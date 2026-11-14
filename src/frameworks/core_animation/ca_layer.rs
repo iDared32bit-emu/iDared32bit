@@ -315,6 +315,16 @@ pub const CLASSES: ClassExports = objc_classes! {
     sublayers.insert(idx, layer);
 }
 
+- (())insertSublayer:(id)layer above:(id)sibling {
+    retain(env, layer);
+    () = msg![env; layer removeFromSuperlayer];
+    env.objc.borrow_mut::<CALayerHostObject>(layer).superlayer = this;
+
+    let CALayerHostObject { ref mut sublayers, .. } = env.objc.borrow_mut(this);
+    let idx = sublayers.iter().position(|&sublayer| sublayer == sibling).unwrap();
+    sublayers.insert(idx + 1, layer);
+}
+
 - (())removeFromSuperlayer {
     let CALayerHostObject { ref mut superlayer, .. } = env.objc.borrow_mut(this);
     let superlayer = std::mem::take(superlayer);
