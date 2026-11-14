@@ -21,7 +21,7 @@ Compatibility:
 - Fixed some games getting stuck on a blank screen after an animation.
 - Fixed crashes in some games that release objects too many times.
 - Fixed taps landing in the wrong place in some games.
-- Fixed crashes in some games that slide between screens.
+- Fixed crashes in some games that slide or flip between screens.
 - Added tab bars, so games that use them can switch between their screens.
 - Added action sheets, so games that use them can offer their choices.
 - Added loading spinners, which some games show while loading.
