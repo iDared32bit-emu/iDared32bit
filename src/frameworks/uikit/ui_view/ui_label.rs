@@ -41,6 +41,10 @@ pub struct UILabelHostObject {
     /// `UIColor*`, or nil for no shadow.
     shadow_color: id,
     shadow_offset: CGSize,
+    /// The app set a nil background colour.
+    nil_background: bool,
+    /// The app set `opaque` to NO.
+    transparent: bool,
 }
 impl_HostObject_with_superclass!(UILabelHostObject);
 impl Default for UILabelHostObject {
@@ -63,6 +67,8 @@ impl Default for UILabelHostObject {
                 width: 0.0,
                 height: -1.0,
             },
+            nil_background: false,
+            transparent: false,
         }
     }
 }
@@ -152,6 +158,8 @@ pub const CLASSES: ClassExports = objc_classes! {
         highlighted: _,
         shadow_color,
         shadow_offset: _,
+        nil_background: _,
+        transparent: _,
     } = env.objc.borrow(this);
     release(env, text);
     release(env, font);
@@ -287,7 +295,13 @@ pub const CLASSES: ClassExports = objc_classes! {
     // nil also just gives white, rather than the normal transparency. I don't
     // know how or why it does that, but overriding this setter seems like a
     // reasonable way to match that behavior.
-    let color: id = if color == nil {
+    // Games that also set opaque to NO expect a nil one to be clear, though.
+    let host = env.objc.borrow_mut::<UILabelHostObject>(this);
+    host.nil_background = color == nil;
+    let transparent = host.transparent;
+    let color: id = if color == nil && transparent {
+        msg_class![env; UIColor clearColor]
+    } else if color == nil {
         msg_class![env; UIColor whiteColor]
     } else {
         color
@@ -313,8 +327,14 @@ pub const CLASSES: ClassExports = objc_classes! {
     () = msg![env; this setNeedsDisplay];
 }
 
-- (())setOpaque:(bool)_opaque {
-    // Built-in views don't have user-controlled opaqueness.
+- (())setOpaque:(bool)opaque {
+    // Built-in views don't have user-controlled opaqueness, but it decides
+    // what a nil background colour means.
+    let host = env.objc.borrow_mut::<UILabelHostObject>(this);
+    host.transparent = !opaque;
+    if host.nil_background {
+        () = msg![env; this setBackgroundColor:nil];
+    }
 }
 
 - (UITextAlignment)textAlignment {
@@ -363,6 +383,8 @@ pub const CLASSES: ClassExports = objc_classes! {
         highlighted,
         shadow_color,
         shadow_offset,
+        nil_background: _,
+        transparent: _,
     } = env.objc.borrow_mut(this);
 
     let text_color = if highlighted && highlighted_text_color != nil {
