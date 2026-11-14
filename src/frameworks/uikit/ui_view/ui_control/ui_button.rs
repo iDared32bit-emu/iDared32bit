@@ -10,6 +10,7 @@ use crate::frameworks::core_graphics::{CGFloat, CGPoint, CGRect, CGSize};
 use crate::frameworks::foundation::ns_string::{from_rust_string, get_static_str, to_rust_string};
 use crate::frameworks::foundation::{NSInteger, NSUInteger};
 use crate::frameworks::uikit::ui_font::UITextAlignmentCenter;
+use crate::frameworks::uikit::ui_geometry::UIEdgeInsets;
 use crate::objc::{
     autorelease, id, impl_HostObject_with_superclass, msg, msg_class, msg_super, nil, objc_classes,
     release, retain, todo_objc_setter, ClassExports, HostObject, NSZonePtr,
@@ -61,6 +62,7 @@ pub struct UIButtonHostObject {
     images_for_states: HashMap<UIControlState, id>,
     /// Values are `UIImage*`
     background_images_for_states: HashMap<UIControlState, id>,
+    title_edge_insets: UIEdgeInsets,
 }
 impl_HostObject_with_superclass!(UIButtonHostObject);
 impl Default for UIButtonHostObject {
@@ -75,6 +77,7 @@ impl Default for UIButtonHostObject {
             title_colors_for_states: HashMap::new(),
             images_for_states: HashMap::new(),
             background_images_for_states: HashMap::new(),
+            title_edge_insets: Default::default(),
         }
     }
 }
@@ -248,7 +251,8 @@ pub const CLASSES: ClassExports = objc_classes! {
         titles_for_states,
         title_colors_for_states,
         images_for_states,
-        background_images_for_states
+        background_images_for_states,
+        title_edge_insets: _,
     } = std::mem::take(env.objc.borrow_mut(this));
 
     release(env, title_label);
@@ -309,11 +313,24 @@ pub const CLASSES: ClassExports = objc_classes! {
         size: image_size,
     };
     () = msg![env; image_view setFrame:image_frame];
+    // The title's insets move and resize it from where it would be.
+    let insets = env.objc.borrow::<UIButtonHostObject>(this).title_edge_insets;
     let title_frame = CGRect {
-        origin: CGPoint { x: x + image_size.width, y: bounds.origin.y },
-        size: CGSize { width: title_width, height: bounds.size.height },
+        origin: CGPoint {
+            x: x + image_size.width + insets.left,
+            y: bounds.origin.y + insets.top,
+        },
+        size: CGSize {
+            width: title_width - insets.left - insets.right,
+            height: bounds.size.height - insets.top - insets.bottom,
+        },
     };
     () = msg![env; title_label setFrame:title_frame];
+}
+
+- (())setTitleEdgeInsets:(UIEdgeInsets)insets {
+    env.objc.borrow_mut::<UIButtonHostObject>(this).title_edge_insets = insets;
+    () = msg![env; this setNeedsLayout];
 }
 
 - (UIButtonType)buttonType {
