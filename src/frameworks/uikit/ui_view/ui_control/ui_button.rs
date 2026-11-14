@@ -348,6 +348,32 @@ pub const CLASSES: ClassExports = objc_classes! {
     () = msg![env; this setNeedsLayout];
 }
 
+- (CGSize)sizeThatFits:(CGSize)_size {
+    // Big enough for the image and title side by side, or for the
+    // background image, whichever is bigger.
+    let zero = CGSize { width: 0.0, height: 0.0 };
+    let image: id = msg![env; this currentImage];
+    let image_size: CGSize = if image == nil { zero } else { msg![env; image size] };
+    let title: id = msg![env; this currentTitle];
+    let title_size: CGSize = if title == nil {
+        zero
+    } else {
+        let title_label: id = msg![env; this titleLabel];
+        let font: id = msg![env; title_label font];
+        msg![env; title sizeWithFont:font]
+    };
+    let background: id = msg![env; this currentBackgroundImage];
+    let background_size: CGSize =
+        if background == nil { zero } else { msg![env; background size] };
+    CGSize {
+        width: (image_size.width + title_size.width).max(background_size.width),
+        height: image_size
+            .height
+            .max(title_size.height)
+            .max(background_size.height),
+    }
+}
+
 - (UIButtonType)buttonType {
     env.objc.borrow_mut::<UIButtonHostObject>(this).type_
 }
