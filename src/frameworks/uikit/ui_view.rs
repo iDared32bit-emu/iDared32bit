@@ -213,6 +213,9 @@ fn init_common(env: &mut Environment, this: id) -> id {
 
     env.framework_state.uikit.ui_view.views.push(this);
 
+    // As on iOS, a view that draws itself is drawn when it first appears.
+    () = msg![env; this setNeedsDisplay];
+
     this
 }
 
