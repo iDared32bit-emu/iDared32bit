@@ -765,6 +765,17 @@ func layOutLabels(
 struct PickerView: View {
     @ObservedObject var model: PickerModel
 
+    /// For presentations: SwiftUI can write a flag back unchanged during a
+    /// view update, and publishing then isn't allowed.
+    private func presenting(
+        _ flag: ReferenceWritableKeyPath<PickerModel, Bool>
+    ) -> Binding<Bool> {
+        Binding(
+            get: { model[keyPath: flag] },
+            set: { if model[keyPath: flag] != $0 { model[keyPath: flag] = $0 } }
+        )
+    }
+
     var body: some View {
         content
             .statusBarHidden(false)
@@ -821,10 +832,10 @@ struct PickerView: View {
             } message: {
                 Text(model.importError ?? "")
             }
-            .sheet(isPresented: $model.showingSettings) {
+            .sheet(isPresented: presenting(\.showingSettings)) {
                 SettingsView(model: model)
             }
-            .alert("The Game Stopped", isPresented: $model.showingStartError) {
+            .alert("The Game Stopped", isPresented: presenting(\.showingStartError)) {
                 Button("OK", role: .cancel) {}
             } message: {
                 Text(model.input.startError ?? "")
@@ -910,7 +921,7 @@ struct PickerView: View {
         // Here, not beside the Settings sheet: on iOS 16, two presentations
         // on one view can keep each other from showing.
         .fileImporter(
-            isPresented: $model.showingImporter,
+            isPresented: presenting(\.showingImporter),
             allowedContentTypes: [UTType(filenameExtension: "ipa") ?? .data, .folder],
             allowsMultipleSelection: true
         ) { result in
