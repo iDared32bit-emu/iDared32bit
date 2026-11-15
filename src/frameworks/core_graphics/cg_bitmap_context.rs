@@ -76,7 +76,9 @@ pub fn CGBitmapContextCreate(
         let data = env.mem.alloc(total_size);
         (data, true, bytes_per_row)
     } else {
-        assert!(bytes_per_row != 0);
+        // Zero is fine when there are no pixels (e.g. an empty string's
+        // texture).
+        assert!(bytes_per_row != 0 || width == 0 || height == 0);
         (data, false, bytes_per_row)
     };
 
@@ -163,7 +165,8 @@ pub fn CGBitmapContextCreateImage(env: &mut Environment, context: CGContextRef) 
         bitmap_data.bytes_per_row * bitmap_data.height,
     );
     let mut pixels = Vec::with_capacity((bitmap_data.width * bitmap_data.height * 4) as usize);
-    for row in row_bytes.chunks(bitmap_data.bytes_per_row as usize) {
+    // A 0x0 context has no rows (and may have 0 bytes per row).
+    for row in row_bytes.chunks(bitmap_data.bytes_per_row.max(1) as usize) {
         for pixel in row[..(bitmap_data.width * 4) as usize].chunks(4) {
             pixels.extend([pixel[r], pixel[g], pixel[b], a.map_or(255, |a| pixel[a])]);
         }
