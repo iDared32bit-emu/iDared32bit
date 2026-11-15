@@ -13,7 +13,7 @@ if [[ $# == 1 ]]; then
     mkdir iDared32bit_windows_bundle
     cp $PATH_TO_BINARY iDared32bit_windows_bundle/iDared32bit.exe
     cp -r ../dylibs iDared32bit_windows_bundle/
-    cp -r ../touchHLE_fonts iDared32bit_windows_bundle/
+    cp -r ../fonts iDared32bit_windows_bundle/
     cp -r ../touchHLE_default_options.txt iDared32bit_windows_bundle/
     # Where games go. Windows has no fixed place to create it in.
     mkdir iDared32bit_windows_bundle/Games

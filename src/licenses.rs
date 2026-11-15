@@ -176,7 +176,7 @@ const PVRTD_LICENSE: &str = include_str!(concat!(
 const EXTERNAL_FILES_CAVEAT: &str = "
 The following authorship, copyright and license information relates to this
 executable. Please note that different licensing terms apply to the bundled
-dynamic libraries (in dylibs/) and fonts (in touchHLE_fonts/). Please
+dynamic libraries (in dylibs/) and fonts (in fonts/). Please
 consult the respective directories for more information.
 ";
 
@@ -262,14 +262,14 @@ fn embedded_in_file(path: &str) -> Option<&'static str> {
         file!("dylibs/README.md"),
         file!("dylibs/COPYING.libz"),
         file!("dylibs/COPYING.libxml2"),
-        file!("touchHLE_fonts/LICENSE.liberation"),
-        file!("touchHLE_fonts/LICENSE.noto"),
-        file!("touchHLE_fonts/LICENSE.caveatbrush"),
-        file!("touchHLE_fonts/LICENSE.dejavu"),
+        file!("fonts/LICENSE.liberation"),
+        file!("fonts/LICENSE.noto"),
+        file!("fonts/LICENSE.caveatbrush"),
+        file!("fonts/LICENSE.dejavu"),
     ];
     // The keys are the files' paths in the repository, which differ from
     // the iOS app bundle's for the fonts.
-    let path = path.replacen(crate::paths::FONTS_DIR, "touchHLE_fonts", 1);
+    let path = path.replacen(crate::paths::FONTS_DIR, "fonts", 1);
     FILES
         .iter()
         .find(|&&(p, _)| p == path)

@@ -32,7 +32,7 @@ pub const DYLIBS_DIR: &str = "dylibs";
 /// Name of the directory containing fonts bundled with touchHLE.
 /// The iOS app bundle uses its own names, via symlinks in `iphone/`.
 #[cfg(not(target_os = "ios"))]
-pub const FONTS_DIR: &str = "touchHLE_fonts";
+pub const FONTS_DIR: &str = "fonts";
 #[cfg(target_os = "ios")]
 pub const FONTS_DIR: &str = "Fonts";
 
