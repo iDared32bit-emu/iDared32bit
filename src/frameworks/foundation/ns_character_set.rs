@@ -276,6 +276,28 @@ pub const CLASSES: ClassExports = objc_classes! {
     host_object.set.contains(&code_unit) ^ host_object.inverted
 }
 
+- (())formUnionWithCharacterSet:(id)other { // NSCharacterSet*
+    let inverted = |env: &mut crate::Environment, set: id| {
+        env.objc.borrow::<CharacterSetHostObject>(set).inverted
+    };
+    if !inverted(env, this) && !inverted(env, other) {
+        let other_set = env.objc.borrow::<CharacterSetHostObject>(other).set.clone();
+        env.objc.borrow_mut::<CharacterSetHostObject>(this).set.extend(other_set);
+        return;
+    }
+    // With an inverted set, it's simplest to list the members.
+    let mut set = HashSet::new();
+    for c in 0..=unichar::MAX {
+        let in_this: bool = msg![env; this characterIsMember:c];
+        if in_this || msg![env; other characterIsMember:c] {
+            set.insert(c);
+        }
+    }
+    let host_object = env.objc.borrow_mut::<CharacterSetHostObject>(this);
+    host_object.set = set;
+    host_object.inverted = false;
+}
+
 - (())addCharactersInString:(id)string { // NSString *
     assert!(!env.objc.borrow::<CharacterSetHostObject>(this).inverted); // TODO
     let length: NSUInteger = msg![env; string length];
