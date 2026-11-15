@@ -69,9 +69,8 @@ Copyright © 2022 Skyline Team and Contributors (https://github.com/skyline-emu/
 ";
 
 const RUST_DESCRIPTION: &str = "
-touchHLE, and therefore this executable, incorporates the following Rust
-libraries, which are copyright their respective authors and other contributors,
-and licensed as follows:
+iDared 32bit incorporates the following Rust libraries, which are copyright
+their respective authors and other contributors, and licensed as follows:
 ";
 
 /// Names, versions, authors and licenses of Rust crates depended on by release
@@ -134,8 +133,8 @@ project.
 ";
 
 const SDL2_DESCRIPTION: &str = "
-touchHLE, and therefore this executable, incorporates the library SDL 2, which
-is available under the following license:
+iDared 32bit incorporates the library SDL 2, which is available under the
+following license:
 ";
 
 const SDL2_LICENSE: &str = "
@@ -157,14 +156,13 @@ freely, subject to the following restrictions:
 ";
 
 const STB_IMAGE: &str = "
-touchHLE, and therefore this executable, incorporates the library stb_image,
-which is available either as Public Domain or under the terms of the MIT
-license.
+iDared 32bit incorporates the library stb_image, which is available either
+as Public Domain or under the terms of the MIT license.
 ";
 
 const PVRTD_DESCRIPTION: &str = "
-touchHLE, and therefore this executable, incorporates PVRTC decompression code
-from the PowerVR SDK, which is available under the following license:
+iDared 32bit incorporates PVRTC decompression code from the PowerVR SDK,
+which is available under the following license:
 ";
 
 const PVRTD_LICENSE: &str = include_str!(concat!(
