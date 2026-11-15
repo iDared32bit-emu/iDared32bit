@@ -155,7 +155,7 @@ pub fn main<T: Iterator<Item = String>>(mut args: T) -> Result<(), String> {
     install_panic_hook();
 
     echo!(
-        "iDared 32bit {}{}{} — https://idared32bit-emu.com/ (based on touchHLE)",
+        "iDared 32bit {}{}{} — https://idared32bit-emu.com/",
         branding(),
         if branding().is_empty() { "" } else { " " },
         VERSION,
