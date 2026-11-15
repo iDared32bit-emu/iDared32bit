@@ -734,13 +734,32 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 - (NSRange)rangeOfCharacterFromSet:(id)set { // NSCharacterSet *
     let length: NSUInteger = msg![env; this length];
-    let mut idx: NSUInteger = 0;
-    while idx < length {
+    let range = NSRange { location: 0, length };
+    msg![env; this rangeOfCharacterFromSet:set options:0u32 range:range]
+}
+- (NSRange)rangeOfCharacterFromSet:(id)set // NSCharacterSet *
+                           options:(NSUInteger)options
+                             range:(NSRange)range {
+    // Only these make sense for single characters.
+    assert!(options & !(NSLiteralSearch | NSBackwardsSearch | NSAnchoredSearch) == 0);
+    let end = range.location.checked_add(range.length).unwrap();
+    let length: NSUInteger = msg![env; this length];
+    assert!(end <= length);
+    let backwards = options & NSBackwardsSearch != 0;
+    let mut indices: Box<dyn Iterator<Item = NSUInteger>> = if backwards {
+        Box::new((range.location..end).rev())
+    } else {
+        Box::new(range.location..end)
+    };
+    // Anchored: only the first character searched (the last, backwards).
+    if options & NSAnchoredSearch != 0 {
+        indices = Box::new(indices.take(1));
+    }
+    for idx in indices {
         let c: u16 = msg![env; this characterAtIndex:idx];
         if msg![env; set characterIsMember:c] {
             return NSRange { location: idx, length: 1 };
         }
-        idx += 1;
     }
     NSRange { location: NSNotFound as NSUInteger, length: 0 }
 }
