@@ -120,6 +120,25 @@ pub const CLASSES: ClassExports = objc_classes! {
     autorelease(env, array)
 }
 
+- (id)initWithArray:(id)array // NSArray*
+          copyItems:(bool)copy_items {
+    if !copy_items {
+        return msg![env; this initWithArray:array];
+    }
+    // The array holds a copy of each object.
+    let copies: id = msg_class![env; NSMutableArray new];
+    let count: NSUInteger = msg![env; array count];
+    for i in 0..count {
+        let object: id = msg![env; array objectAtIndex:i];
+        let copy: id = msg![env; object copy];
+        () = msg![env; copies addObject:copy];
+        release(env, copy);
+    }
+    let this: id = msg![env; this initWithArray:copies];
+    release(env, copies);
+    this
+}
+
 // These probably comes from some category related to plists.
 - (id)initWithContentsOfFile:(id)path { // NSString*
     release(env, this);
