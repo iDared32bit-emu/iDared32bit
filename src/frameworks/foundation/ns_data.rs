@@ -265,6 +265,15 @@ pub const CLASSES: ClassExports = objc_classes! {
     );
 }
 
+- (id)subdataWithRange:(NSRange)range {
+    let &NSDataHostObject { bytes, length, .. } = env.objc.borrow(this);
+    // TODO: throw NSRangeException if out-of-range instead of panic?
+    assert!(range.location <= length && range.length <= length - range.location);
+    let start = bytes.cast_const().cast::<u8>() + range.location;
+    let length = range.length;
+    msg_class![env; NSData dataWithBytes:(start.cast_void()) length:length]
+}
+
 - (())getBytes:(MutPtr<u8>)buffer {
     let &NSDataHostObject { bytes, length, .. } = env.objc.borrow(this);
     env.mem.memmove(
