@@ -210,6 +210,24 @@ fn NSStringFromRange(env: &mut Environment, range: NSRange) -> id {
     ns_string::from_rust_string(env, string)
 }
 
+/// As on iOS, ranges that don't meet give {0, 0}, and ones that only touch
+/// give an empty range where they touch.
+fn NSIntersectionRange(_env: &mut Environment, a: NSRange, b: NSRange) -> NSRange {
+    let end = |r: &NSRange| u64::from(r.location) + u64::from(r.length);
+    let location = a.location.max(b.location);
+    let end = end(&a).min(end(&b));
+    if end < u64::from(location) {
+        return NSRange {
+            location: 0,
+            length: 0,
+        };
+    }
+    NSRange {
+        location,
+        length: (end - u64::from(location)) as NSUInteger,
+    }
+}
+
 pub type NSComparisonResult = NSInteger;
 pub const NSOrderedAscending: NSComparisonResult = -1;
 pub const NSOrderedSame: NSComparisonResult = 0;
@@ -235,4 +253,7 @@ fn hash_helper<T: std::hash::Hash>(hashable: &T) -> NSUInteger {
     (hash_u64 as u32) ^ ((hash_u64 >> 32) as u32)
 }
 
-const FUNCTIONS: FunctionExports = &[export_c_func!(NSStringFromRange(_))];
+const FUNCTIONS: FunctionExports = &[
+    export_c_func!(NSStringFromRange(_)),
+    export_c_func!(NSIntersectionRange(_, _)),
+];
