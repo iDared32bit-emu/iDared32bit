@@ -304,11 +304,16 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (())addCharactersInString:(id)string { // NSString *
-    assert!(!env.objc.borrow::<CharacterSetHostObject>(this).inverted); // TODO
     let length: NSUInteger = msg![env; string length];
     for i in 0..length {
         let c = msg![env; string characterAtIndex:i];
-        env.objc.borrow_mut::<CharacterSetHostObject>(this).set.insert(c);
+        let host_object = env.objc.borrow_mut::<CharacterSetHostObject>(this);
+        // An inverted set lists the characters it doesn't have.
+        if host_object.inverted {
+            host_object.set.remove(&c);
+        } else {
+            host_object.set.insert(c);
+        }
     }
 }
 
