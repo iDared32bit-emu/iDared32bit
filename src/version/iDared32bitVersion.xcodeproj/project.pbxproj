@@ -94,7 +94,7 @@
 					};
 				};
 			};
-			buildConfigurationList = CAF68116434280E02D6C7F57 /* Build configuration list for PBXProject "touchHLE_version" */;
+			buildConfigurationList = CAF68116434280E02D6C7F57 /* Build configuration list for PBXProject "iDared32bitVersion" */;
 			compatibilityVersion = "Xcode 11.4";
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
@@ -191,7 +191,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		CAF68116434280E02D6C7F57 /* Build configuration list for PBXProject "touchHLE_version" */ = {
+		CAF68116434280E02D6C7F57 /* Build configuration list for PBXProject "iDared32bitVersion" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				CAF7344738E43CC16B37690B /* Release */,
