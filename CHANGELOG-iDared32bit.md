@@ -26,6 +26,7 @@ Compatibility:
 - Fixed buttons not showing or not responding in some games, and some games getting stuck while loading.
 - Text shadows are now drawn.
 - Fixed a black screen after leaving a game while its keyboard was showing.
+- Games that need OpenGL ES 2.0, which isn't supported yet, now say so when they stop.
 - Added tab bars, so games that use them can switch between their screens.
 - Added action sheets, so games that use them can offer their choices.
 - Added loading spinners, which some games show while loading.
