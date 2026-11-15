@@ -2171,6 +2171,8 @@ impl Drop for Environment {
         }
         if let Some(w) = self.window.as_mut() {
             w.on_main_stack = false;
+            // A game's keyboard mustn't stay up over the app picker.
+            w.stop_text_input_on_exit();
         }
         if self.threads.is_empty()
             || self

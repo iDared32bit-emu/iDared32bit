@@ -1932,6 +1932,12 @@ impl Window {
             sdl2_sys::SDL_StopTextInput();
         }
     }
+    /// For when the app ends, from wherever that happens.
+    pub fn stop_text_input_on_exit(&self) {
+        unsafe {
+            sdl2_sys::SDL_StopTextInput();
+        }
+    }
 
     pub fn on_main_stack(&self) -> bool {
         self.on_main_stack
