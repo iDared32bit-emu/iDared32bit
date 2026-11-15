@@ -27,6 +27,17 @@ pub fn module_name(path: &'static str) -> &'static str {
     }
 }
 
+/// Our private classes are named `_touchHLE_Foo` in the code. Logs and crash
+/// messages show them as `(private class)_Foo`: to find one, search the code
+/// for `_touchHLE_Foo`.
+pub fn public_names(message: String) -> String {
+    if message.contains("_touchHLE_") {
+        message.replace("_touchHLE_", "(private class)_")
+    } else {
+        message
+    }
+}
+
 pub fn get_log_file() -> &'static File {
     static LOG_FILE: LazyLock<File> = LazyLock::new(|| {
         let base_path = crate::paths::user_data_base_path();
@@ -94,7 +105,7 @@ macro_rules! log_once {
 macro_rules! echo {
     ($($arg:tt)+) => {
         {
-            let formatted_str = format!($($arg)+);
+            let formatted_str = $crate::log::public_names(format!($($arg)+));
 
             #[cfg(target_os = "android")]
             {
@@ -150,4 +161,14 @@ fn test_module_name() {
     assert_eq!(module_name("touchHLE"), "iDared 32bit");
     assert_eq!(module_name("other_crate::thing"), "other_crate::thing");
     assert_eq!(module_name("touchHLE_version"), "touchHLE_version");
+}
+
+#[cfg(test)]
+#[test]
+fn test_public_names() {
+    assert_eq!(
+        public_names(r#"Object 0x1 (class "_touchHLE_NSArray")"#.to_string()),
+        r#"Object 0x1 (class "(private class)_NSArray")"#,
+    );
+    assert_eq!(public_names("touchHLE::x".to_string()), "touchHLE::x");
 }
