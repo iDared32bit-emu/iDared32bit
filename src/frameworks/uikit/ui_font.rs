@@ -583,10 +583,10 @@ fn get_equivalent_font(system_font: &str) -> Option<FontKind> {
         "HiraKakuProN-W6" => None,
         "HiraKakuProN-W3" => None,
         // Font Family: Courier New
-        "CourierNewPS-BoldMT" => Some(FontKind::MonoRegular),
-        "CourierNewPS-ItalicMT" => Some(FontKind::MonoBold),
+        "CourierNewPS-BoldMT" => Some(FontKind::MonoBold),
+        "CourierNewPS-ItalicMT" => Some(FontKind::MonoItalic),
         "CourierNewPS-BoldItalicMT" => Some(FontKind::MonoBoldItalic),
-        "CourierNewPSMT" => Some(FontKind::MonoItalic),
+        "CourierNewPSMT" => Some(FontKind::MonoRegular),
         // Font Family: Zapfino
         "Zapfino" => None,
         // Font Family: Arial Unicode MS
