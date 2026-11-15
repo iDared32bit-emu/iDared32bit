@@ -298,6 +298,11 @@ pub const CLASSES: ClassExports = objc_classes! {
     host_object.inverted = false;
 }
 
+- (())invert {
+    let host_object = env.objc.borrow_mut::<CharacterSetHostObject>(this);
+    host_object.inverted = !host_object.inverted;
+}
+
 - (())addCharactersInString:(id)string { // NSString *
     assert!(!env.objc.borrow::<CharacterSetHostObject>(this).inverted); // TODO
     let length: NSUInteger = msg![env; string length];
