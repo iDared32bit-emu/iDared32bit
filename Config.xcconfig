@@ -3,8 +3,9 @@
 // Pulls developer-specific signing settings — your Apple Development Team ID —
 // in from Local.xcconfig, which is intentionally NOT committed to git (see
 // Local.xcconfig.example for the template). This same file is referenced by
-// both touchHLE.xcodeproj (dev/standalone build) and iphone/iDared32bit.xcodeproj
-// (the iOS app), so there is a single place to set the Team ID.
+// both iDared32bitCore.xcodeproj (dev/standalone build) and
+// iphone/iDared32bit.xcodeproj (the iOS app), so there is a single place to
+// set the Team ID.
 //
 // The `?` makes the include optional, so the projects still open and build when
 // Local.xcconfig is absent (CI, or a contributor without a signing identity).

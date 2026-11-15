@@ -36,7 +36,7 @@
 /* Begin PBXFileReference section */
 		4F5818482F84076100018CE3 /* libiDared32bit_static.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; path = libiDared32bit_static.a; sourceTree = BUILT_PRODUCTS_DIR; };
 		4FE48DA72F8C117700C368B5 /* DefaultOptions.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = DefaultOptions.txt; sourceTree = SOURCE_ROOT; };
-		E36F8F702DD1AB1500950EF2 /* touchHLE.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; name = touchHLE.xcodeproj; path = ../touchHLE.xcodeproj; sourceTree = "<absolute>"; };
+		E36F8F702DD1AB1500950EF2 /* iDared32bitCore.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; name = iDared32bitCore.xcodeproj; path = ../iDared32bitCore.xcodeproj; sourceTree = "<absolute>"; };
 		E36F8FBA2DD1B0D000950EF2 /* CoreFoundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreFoundation.framework; path = System/Library/Frameworks/CoreFoundation.framework; sourceTree = SDKROOT; };
 		E36F8FBB2DD1B0D000950EF2 /* AVFoundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AVFoundation.framework; path = System/Library/Frameworks/AVFoundation.framework; sourceTree = SDKROOT; };
 		E36F8FBC2DD1B0D000950EF2 /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = System/Library/Frameworks/Foundation.framework; sourceTree = SDKROOT; };
@@ -183,7 +183,7 @@
 			children = (
 				E36F91812DD1BCBD00950EF2 /* Assets */,
 				E3C0F1600000000000000001 /* Config.xcconfig */,
-				E36F8F702DD1AB1500950EF2 /* touchHLE.xcodeproj */,
+				E36F8F702DD1AB1500950EF2 /* iDared32bitCore.xcodeproj */,
 				E3A46EDD2DD1A79A00619FED /* SDL.xcodeproj */,
 				E3A46EC52DD1A44100619FED /* iDared32bit */,
 				E36F8F7E2DD1AB2100950EF2 /* Frameworks */,
@@ -264,7 +264,7 @@
 				},
 				{
 					ProductGroup = E36F8F732DD1AB1500950EF2 /* Products */;
-					ProjectRef = E36F8F702DD1AB1500950EF2 /* touchHLE.xcodeproj */;
+					ProjectRef = E36F8F702DD1AB1500950EF2 /* iDared32bitCore.xcodeproj */;
 				},
 			);
 			projectRoot = "";
