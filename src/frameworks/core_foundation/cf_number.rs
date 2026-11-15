@@ -12,7 +12,7 @@ use super::cf_allocator::{kCFAllocatorDefault, CFAllocatorRef};
 use super::{CFComparisonResult, CFIndex, CFTypeRef};
 use crate::dyld::{export_c_func, ConstantExports, FunctionExports, HostConstant};
 use crate::frameworks::foundation::ns_value::is_conversion_lossless;
-use crate::mem::{ConstVoidPtr, MutVoidPtr};
+use crate::mem::{ConstPtr, ConstVoidPtr, MutVoidPtr};
 use crate::objc::{id, msg, msg_class};
 use crate::Environment;
 
@@ -114,6 +114,22 @@ fn CFNumberGetValue(
     }
 }
 
+/// The type it's stored as, as on iOS: not always the one it was made with.
+fn CFNumberGetType(env: &mut Environment, num: CFNumberRef) -> CFNumberType {
+    let type_: ConstPtr<u8> = msg![env; num objCType];
+    match env.mem.read(type_) {
+        b'c' => kCFNumberSInt8Type,
+        b's' => kCFNumberSInt16Type,
+        b'i' => kCFNumberSInt32Type,
+        // iOS uses a private 128-bit type for unsigned long longs too big
+        // for 64 bits; those can't be read back exactly either way.
+        b'q' | b'Q' => kCFNumberSInt64Type,
+        b'f' => kCFNumberFloat32Type,
+        b'd' => kCFNumberFloat64Type,
+        other => unimplemented!("CFNumberGetType for {:?}", other as char),
+    }
+}
+
 fn CFNumberCompare(
     env: &mut Environment,
     num1: CFNumberRef,
@@ -152,6 +168,7 @@ pub const CONSTANTS: ConstantExports = &[
 pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(CFNumberCreate(_, _, _)),
     export_c_func!(CFNumberGetValue(_, _, _)),
+    export_c_func!(CFNumberGetType(_)),
     export_c_func!(CFNumberCompare(_, _, _)),
     export_c_func!(CFBooleanGetValue(_)),
 ];
