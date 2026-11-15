@@ -148,18 +148,41 @@ pub const CLASSES: ClassExports = objc_classes! {
     msg![env; this scanUpToCharactersFromSet:inv_cset intoString:str]
 }
 
+// An optional "0x" or "0X", then hex digits. Too big gives UINT_MAX, but
+// all the digits are still scanned.
 - (bool)scanHexInt:(MutPtr<u32>)result {
-    assert!(!result.is_null());
     skip_characters(env, this);
 
-    let NSScannerHostObject { to_be_skipped: _set, string, len, pos } = env.objc.borrow::<NSScannerHostObject>(this).clone();
-    assert!(pos < len);
-    let susbstring: id = msg![env; string substringFromIndex:pos];
-    let tmp = to_rust_string(env, susbstring);
-    assert!(!tmp.starts_with("0x") && !tmp.starts_with("0X"));
-    assert!(!tmp.chars().next().unwrap().is_ascii_hexdigit()); // TODO
-    env.mem.write(result, 0);
-    false
+    let NSScannerHostObject { string, len, pos, .. } = env.objc.borrow::<NSScannerHostObject>(this).clone();
+    let digit_at = |env: &mut Environment, i: NSUInteger| -> Option<u32> {
+        if i >= len {
+            return None;
+        }
+        let c: unichar = msg![env; string characterAtIndex:i];
+        char::from_u32(c.into()).and_then(|c| c.to_digit(16))
+    };
+    let mut start = pos;
+    if pos + 2 <= len && digit_at(env, pos + 2).is_some() {
+        let zero: unichar = msg![env; string characterAtIndex:pos];
+        let x: unichar = msg![env; string characterAtIndex:(pos + 1)];
+        if zero == u16::from(b'0') && (x == u16::from(b'x') || x == u16::from(b'X')) {
+            start = pos + 2;
+        }
+    }
+    let mut value: Option<u32> = Some(0);
+    let mut end = start;
+    while let Some(digit) = digit_at(env, end) {
+        value = value.and_then(|v| v.checked_mul(16)).and_then(|v| v.checked_add(digit));
+        end += 1;
+    }
+    if end == start {
+        return false;
+    }
+    if !result.is_null() {
+        env.mem.write(result, value.unwrap_or(u32::MAX));
+    }
+    env.objc.borrow_mut::<NSScannerHostObject>(this).pos = end;
+    true
 }
 
 - (bool)scanUpToString:(id)stop_string // NSString *
