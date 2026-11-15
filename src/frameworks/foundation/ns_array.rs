@@ -88,7 +88,11 @@ pub const CLASSES: ClassExports = objc_classes! {
     retain(env, object);
     let objects = vec![object];
     let array = from_vec(env, objects);
-    autorelease(env, array)
+    // Mutable when sent to NSMutableArray.
+    let new: id = msg![env; this alloc];
+    let new: id = msg![env; new initWithArray:array];
+    release(env, array);
+    autorelease(env, new)
 }
 + (id)arrayWithObjects:(id)first_obj, ...args {
     let objects = if first_obj == nil {
