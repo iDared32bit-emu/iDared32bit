@@ -330,6 +330,12 @@ impl Environment {
         if ENVIRONMENT_INSTANCE_EXISTS.swap(true, std::sync::atomic::Ordering::SeqCst) {
             return Err("Only one (real) Environment can exist at a time!".to_string());
         }
+        // A game that says it needs OpenGL ES 2.0 may crash before asking.
+        let capabilities = bundle.required_device_capabilities();
+        let needs_gles2 =
+            capabilities.contains(&"opengles-2") || capabilities.contains(&"opengles-3");
+        let gles2_refused = &crate::frameworks::opengles::GLES2_REFUSED;
+        gles2_refused.store(needs_gles2, std::sync::atomic::Ordering::Relaxed);
         // If this fails, there's no Environment whose drop would clear it, and
         // the next app could never start.
         struct ClearOnFailure(bool);

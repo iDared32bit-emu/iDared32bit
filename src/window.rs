@@ -2189,6 +2189,13 @@ pub static RETURN_TO_APP_PICKER_AFTER_ERROR: std::sync::atomic::AtomicBool =
 pub fn show_error_messagebox(window: Option<&Window>, error_message: &str) {
     // Our own private classes are named _touchHLE_Foo.
     let error_message = &error_message.replace("_touchHLE_", "(private class)_");
+    // Its crash is most likely just a result of that, so say so instead.
+    let gles2_refused = &crate::frameworks::opengles::GLES2_REFUSED;
+    let error_message = if gles2_refused.swap(false, std::sync::atomic::Ordering::Relaxed) {
+        "This game requires OpenGL ES 2.0, which is not supported yet"
+    } else {
+        error_message
+    };
     // On iOS, the app picker shows it instead, with an OK button, so the
     // game always returns there.
     if cfg!(target_os = "ios") {

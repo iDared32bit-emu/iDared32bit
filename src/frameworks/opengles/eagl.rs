@@ -24,6 +24,7 @@ use crate::Environment;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 // These are used by the EAGLDrawable protocol implemented by CAEAGLayer.
@@ -52,6 +53,11 @@ pub const CONSTANTS: ConstantExports = &[
         HostConstant::NSString(kEAGLColorFormatRGB565),
     ),
 ];
+
+/// The game needs OpenGL ES 2.0 or later (it asked for it, or its
+/// Info.plist says so) and hasn't settled for 1.1, so it may crash for lack
+/// of it.
+pub static GLES2_REFUSED: AtomicBool = AtomicBool::new(false);
 
 type EAGLRenderingAPI = u32;
 const kEAGLRenderingAPIOpenGLES1: EAGLRenderingAPI = 1;
@@ -129,8 +135,10 @@ pub const CLASSES: ClassExports = objc_classes! {
             api,
             group
         );
+        GLES2_REFUSED.store(true, Ordering::Relaxed);
         return nil;
     }
+    GLES2_REFUSED.store(false, Ordering::Relaxed);
 
     if group == nil {
         return msg![env; this initWithAPI:api];
@@ -179,8 +187,10 @@ pub const CLASSES: ClassExports = objc_classes! {
             "TODO: App requested EAGL initWithAPI:{}, returning nil as we only support API 1 for now",
             api
         );
+        GLES2_REFUSED.store(true, Ordering::Relaxed);
         return nil;
     }
+    GLES2_REFUSED.store(false, Ordering::Relaxed);
 
     let mut gles1_ins = create_gles1_ctx(env);
 
