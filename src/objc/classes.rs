@@ -45,6 +45,8 @@ pub(super) struct ClassHostObject {
     pub(super) ivars: HashMap<String, IVar>,
     /// Declared properties, from the class and its categories.
     pub(super) properties: Vec<objc_property_t>,
+    /// Adopted protocols (`protocol_t*`), from the class and its categories.
+    pub(super) protocols: Vec<ConstVoidPtr>,
     /// Offset into the allocated memory for the object where the ivars of
     /// instances of this class or metaclass (respectively: normal objects or
     /// classes) should live. This is always >= the value in the superclass.
@@ -111,7 +113,7 @@ struct class_rw_t {
     _reserved: u32,
     name: ConstPtr<u8>,
     base_methods: ConstPtr<method_list_t>,
-    _base_protocols: ConstVoidPtr, // protocol list (TODO)
+    base_protocols: ConstPtr<GuestUSize>, // protocol_list_t*
     ivars: ConstPtr<ivar_list_t>,
     _weak_ivar_layout: u32,
     base_properties: ConstPtr<property_list_t>,
@@ -127,7 +129,7 @@ struct category_t {
     class: Class,
     instance_methods: ConstPtr<method_list_t>,
     class_methods: ConstPtr<method_list_t>,
-    _protocols: ConstVoidPtr, // protocol list (TODO)
+    protocols: ConstPtr<GuestUSize>, // protocol_list_t*
     property_list: ConstPtr<property_list_t>,
 }
 unsafe impl SafeRead for category_t {}
@@ -414,6 +416,7 @@ impl ClassHostObject {
             instance_size: size,
             ivars: HashMap::default(),
             properties: Vec::new(),
+            protocols: Vec::new(),
             is_initialized: InitializationStatus::NotInitialized,
         }
     }
@@ -427,6 +430,7 @@ impl ClassHostObject {
             instance_size,
             name,
             base_methods,
+            base_protocols,
             ivars,
             base_properties,
             ..
@@ -444,6 +448,7 @@ impl ClassHostObject {
             instance_size,
             ivars: HashMap::new(),
             properties: Vec::new(),
+            protocols: read_protocol_list(mem, base_protocols),
             is_initialized: InitializationStatus::NotInitialized,
         };
 
@@ -964,6 +969,7 @@ impl ObjC {
                         instance_size: Default::default(),
                         ivars: Default::default(),
                         properties: Default::default(),
+                        protocols: Default::default(),
                         is_initialized: InitializationStatus::NotInitialized,
                     },
                 );
@@ -988,6 +994,17 @@ impl ObjC {
                 *self.borrow_mut::<ClassHostObject>(class) = host_obj;
             }
 
+            // And its protocols.
+            let protocols = read_protocol_list(mem, data.protocols);
+            if !protocols.is_empty() {
+                let any = self.get_host_object(class).unwrap().as_any();
+                if !any.is::<FakeClass>() && !any.is::<UnimplementedClass>() {
+                    self.borrow_mut::<ClassHostObject>(class)
+                        .protocols
+                        .extend(protocols);
+                }
+            }
+
             // As in Apple's runtime, the class gets the category's properties.
             if !data.property_list.is_null() {
                 let any = self.get_host_object(class).unwrap().as_any();
@@ -997,6 +1014,39 @@ impl ObjC {
                 }
             }
         }
+    }
+
+    /// Whether the class or a superclass adopts the protocol (`protocol_t*`)
+    /// or one that inherits from it. Protocols are matched by name, as one
+    /// can be in more than one binary. Our own classes adopt none.
+    pub fn class_conforms_to_protocol(
+        &self,
+        mem: &Mem,
+        class: Class,
+        protocol: ConstVoidPtr,
+    ) -> bool {
+        if protocol.is_null() {
+            return false;
+        }
+        let name = protocol_name(mem, protocol);
+        let mut class = class;
+        while class != nil {
+            let Some(host_obj) = self
+                .get_host_object(class)
+                .and_then(|obj| obj.as_any().downcast_ref::<ClassHostObject>())
+            else {
+                return false;
+            };
+            if host_obj
+                .protocols
+                .iter()
+                .any(|&adopted| protocol_includes(mem, adopted, name))
+            {
+                return true;
+            }
+            class = host_obj.superclass;
+        }
+        false
     }
 
     pub fn class_is_subclass_of(&self, class: Class, superclass: Class) -> bool {
@@ -1296,4 +1346,33 @@ pub(super) fn class_getMethodImplementation(env: &mut Environment, cls: Class, n
         }
         class = next;
     }
+}
+
+/// The `protocol_t*`s in a `protocol_list_t` (a count, then the pointers).
+fn read_protocol_list(mem: &Mem, list: ConstPtr<GuestUSize>) -> Vec<ConstVoidPtr> {
+    if list.is_null() {
+        return Vec::new();
+    }
+    let count = mem.read(list);
+    (1..=count)
+        .map(|i| Ptr::from_bits(mem.read(list + i)))
+        .collect()
+}
+
+/// A `protocol_t` is an isa, its name, then the protocols it inherits from.
+fn protocol_name(mem: &Mem, protocol: ConstVoidPtr) -> &str {
+    let name: ConstPtr<u8> = Ptr::from_bits(mem.read(protocol.cast::<GuestUSize>() + 1));
+    mem.cstr_at_utf8(name).unwrap()
+}
+
+/// Whether the protocol is the named one or inherits from it.
+fn protocol_includes(mem: &Mem, protocol: ConstVoidPtr, name: &str) -> bool {
+    if protocol_name(mem, protocol) == name {
+        return true;
+    }
+    let inherited: ConstPtr<GuestUSize> =
+        Ptr::from_bits(mem.read(protocol.cast::<GuestUSize>() + 2));
+    read_protocol_list(mem, inherited)
+        .into_iter()
+        .any(|parent| protocol_includes(mem, parent, name))
 }

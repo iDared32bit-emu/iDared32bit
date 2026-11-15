@@ -125,6 +125,10 @@ pub const CLASSES: ClassExports = objc_classes! {
     // classes are not refcounted
 }
 
++ (bool)conformsToProtocol:(ConstVoidPtr)protocol {
+    env.objc.class_conforms_to_protocol(&env.mem, this, protocol)
+}
+
 + (bool)instancesRespondToSelector:(SEL)selector {
     env.objc.class_has_method(this, selector)
 }
@@ -601,6 +605,11 @@ forUndefinedKey:(id)key { // NSString*
 
 - (bool)respondsToSelector:(SEL)selector {
     env.objc.object_has_method(&env.mem, this, selector)
+}
+
+- (bool)conformsToProtocol:(ConstVoidPtr)protocol {
+    let class = ObjC::read_isa(this, &env.mem);
+    env.objc.class_conforms_to_protocol(&env.mem, class, protocol)
 }
 
 - (id)performSelector:(SEL)sel {
