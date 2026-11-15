@@ -571,8 +571,8 @@ fn get_equivalent_font(system_font: &str) -> Option<FontKind> {
         "Courier-Bold" => None,
         // Font Family: AppleGothic
         "AppleGothic" => None,
-        // Font Family: Arial
-        "ArialMT" => Some(FontKind::SansRegular),
+        // Font Family: Arial (iOS also takes the family name)
+        "Arial" | "ArialMT" => Some(FontKind::SansRegular),
         "Arial-BoldMT" => Some(FontKind::SansBold),
         "Arial-BoldItalicMT" => Some(FontKind::SansBoldItalic),
         "Arial-ItalicMT" => Some(FontKind::SansItalic),
