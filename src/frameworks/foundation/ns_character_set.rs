@@ -52,6 +52,17 @@ const CONTROL_CHARACTERS: [char; 99] = [
     '\u{FFF9}', '\u{FFFA}', '\u{FFFB}',
 ];
 
+/// A new (+1) character set of the class, with the same characters.
+fn copy_as(env: &mut crate::Environment, this: id, class_name: &str) -> id {
+    let old_host_object = env.objc.borrow::<CharacterSetHostObject>(this);
+    let host_object = Box::new(CharacterSetHostObject {
+        set: old_host_object.set.clone(),
+        inverted: old_host_object.inverted,
+    });
+    let class = env.objc.get_known_class(class_name, &mut env.mem);
+    env.objc.alloc_object(class, host_object, &mut env.mem)
+}
+
 /// Belongs to _touchHLE_NSCharacterSet
 struct CharacterSetHostObject {
     set: HashSet<unichar>,
@@ -188,7 +199,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 // NSMutableCopying implementation
 - (id)mutableCopyWithZone:(NSZonePtr)_zone {
-    todo!()
+    copy_as(env, this, "_touchHLE_NSMutableCharacterSet")
 }
 
 - (bool)characterIsMember:(unichar)code_unit {
@@ -222,11 +233,11 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 // NSCopying implementation
 - (id)copyWithZone:(NSZonePtr)_zone {
-    todo!()
+    copy_as(env, this, "_touchHLE_NSCharacterSet")
 }
 // NSMutableCopying implementation
 - (id)mutableCopyWithZone:(NSZonePtr)_zone {
-    todo!()
+    copy_as(env, this, "_touchHLE_NSMutableCharacterSet")
 }
 
 - (bool)characterIsMember:(unichar)code_unit {
